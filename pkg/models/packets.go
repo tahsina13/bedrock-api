@@ -41,6 +41,11 @@ func (p Packet) WithSessions(sessions ...Session) Packet {
 	return p
 }
 
+// IsEmpty return true if the packet has no headers.
+func (p Packet) IsEmpty() bool {
+	return len(p.Headers) == 0
+}
+
 // ToBytes converts the Packet struct to a byte slice.
 func (p Packet) ToBytes() []byte {
 	b, _ := json.Marshal(p)

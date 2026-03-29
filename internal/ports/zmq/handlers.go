@@ -36,7 +36,7 @@ func (z ZMQServer) socketHandler(in chan [][]byte, out chan [][]byte) {
 			continue
 		}
 
-		if len(msg.Headers) == 0 {
+		if msg.IsEmpty() {
 			out <- [][]byte{event[0], msg.ToBytes()}
 			continue
 		}
@@ -44,6 +44,7 @@ func (z ZMQServer) socketHandler(in chan [][]byte, out chan [][]byte) {
 		if val, ok := msg.Headers["register_daemon"]; ok {
 			z.Scheduler.Append(val)
 			z.Logr.Info("new daemon registered", zap.String("name", val))
+
 			out <- [][]byte{event[0], msg.ToBytes()}
 			continue
 		}

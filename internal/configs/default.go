@@ -13,6 +13,7 @@ func Default() *Config {
 			RunInFullMode:  true,
 		},
 		Dockerd: &DockerdConfig{
+			Name:          "hostname",
 			LogLevel:      "info",
 			APISocketHost: "127.0.0.1",
 			APISocketPort: 8081,

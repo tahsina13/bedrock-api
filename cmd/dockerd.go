@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/amirhnajafiz/bedrock-api/internal/configs"
 	"github.com/amirhnajafiz/bedrock-api/internal/logger"
 	"github.com/amirhnajafiz/bedrock-api/pkg/models"
 	"github.com/amirhnajafiz/bedrock-api/pkg/zclient"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 )
@@ -33,8 +35,16 @@ func StartDockerd(cfg *configs.DockerdConfig) {
 	// create a new logger instance
 	logr := logger.New(cfg.LogLevel)
 
-	// TODO: generate a unique name
-	name := "dd_instance"
+	// setting the dockerd name
+	name := cfg.Name
+	if name == "hostname" {
+		name, _ = os.Hostname()
+	}
+	if len(name) == 0 {
+		name = uuid.NewString()
+	}
+
+	// API ZMQ server address
 	address := fmt.Sprintf("tcp://%s:%d", cfg.APISocketHost, cfg.APISocketPort)
 
 	// register this docker daemon with API

@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// health checks the server's health by sending a ping packet to ZMQ server.
+// health checks the server's health by sending an empty packet to ZMQ server.
 func (h HTTPServer) health(c *echo.Context) error {
 	// call the ZMQ server to check if it's alive
 	_, err := zclient.SendEvent(h.SocketAddress, models.NewPacket().ToBytes(), 10)

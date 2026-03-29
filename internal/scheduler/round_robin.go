@@ -8,11 +8,13 @@ import (
 
 var ErrEmpty = errors.New("scheduler is empty")
 
+// RoundRobinScheduler selects an instance using RoundRobin algorithm.
 type RoundRobinScheduler struct {
 	mu    sync.Mutex
 	queue []string
 }
 
+// NewRoundRobin returns an instance of round-robin scheduler.
 func NewRoundRobin() Scheduler {
 	return &RoundRobinScheduler{
 		queue: make([]string, 0),
@@ -23,6 +25,7 @@ func (r *RoundRobinScheduler) Append(item string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// avoid duplicate append
 	if slices.Contains(r.queue, item) {
 		return
 	}
@@ -34,6 +37,7 @@ func (r *RoundRobinScheduler) Pick() (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// error if the queue is empty
 	if len(r.queue) == 0 {
 		return "", ErrEmpty
 	}
