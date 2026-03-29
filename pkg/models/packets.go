@@ -4,15 +4,15 @@ import "encoding/json"
 
 // Packet represents a collection of events to be sent together.
 type Packet struct {
-	NumEvents int     `json:"num_events"`
-	Events    []Event `json:"events"`
+	Flag   byte    `json:"flag"`
+	Events []Event `json:"events"`
 }
 
 // NewPacket creates a new Packet instance and adds the provided events to it.
-func NewPacket(events ...Event) *Packet {
+func NewPacket(flag byte, events ...Event) *Packet {
 	instance := Packet{
-		NumEvents: 0,
-		Events:    make([]Event, 0),
+		Flag:   flag,
+		Events: make([]Event, 0),
 	}
 
 	instance.AddEvents(events...)
@@ -23,7 +23,6 @@ func NewPacket(events ...Event) *Packet {
 // AddEvents adds one or more events to the packet and updates the event count accordingly.
 func (p *Packet) AddEvents(events ...Event) {
 	for _, event := range events {
-		p.NumEvents++
 		p.Events = append(p.Events, event)
 	}
 }

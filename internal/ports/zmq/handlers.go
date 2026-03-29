@@ -1,6 +1,7 @@
 package zmq
 
 import (
+	"github.com/amirhnajafiz/bedrock-api/pkg/enums"
 	"github.com/amirhnajafiz/bedrock-api/pkg/models"
 
 	"github.com/zeromq/goczmq"
@@ -36,6 +37,9 @@ func (z ZMQServer) socketHandler(in chan [][]byte, out chan [][]byte) {
 			continue
 		}
 
-		out <- [][]byte{event[0], msg.ToBytes()}
+		if msg.Flag&enums.FlagPing != 0 {
+			msg.Flag = enums.FlagPong
+			out <- [][]byte{event[0], msg.ToBytes()}
+		}
 	}
 }

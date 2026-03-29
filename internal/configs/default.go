@@ -18,9 +18,9 @@ func Default() *Config {
 			APISocketPort: 8081,
 		},
 		FileMD: &FileMDConfig{
-			LogLevel:      "info",
-			APISocketHost: "127.0.0.1",
-			APISocketPort: 8081,
+			LogLevel: "info",
+			HTTPHost: "127.0.0.1",
+			HTTPPort: 8082,
 		},
 	}
 }
