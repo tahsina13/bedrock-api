@@ -44,7 +44,7 @@ func StartAPI(ctx context.Context, cfg *configs.APIConfig) {
 	// create an errgroup with the provided context
 	erg, ctx := errgroup.WithContext(ctx)
 
-	// build and start the ZMQ server
+	// build and start the ZMQ server in a separate goroutine
 	zmqAddress := fmt.Sprintf("tcp://%s:%d", cfg.SocketHost, cfg.SocketPort)
 	zmqServer := zmq.ZMQServer{
 		Logr:         logr.Named("zmq"),
@@ -55,11 +55,9 @@ func StartAPI(ctx context.Context, cfg *configs.APIConfig) {
 		cfg.SocketHandlers,
 		ctx,
 	)
-	erg.Go(func() error {
-		return zmqServer.Serve()
-	})
+	erg.Go(zmqServer.Serve)
 
-	// build and start the HTTP server
+	// build and start the HTTP server in a separate goroutine
 	httpServer := http.HTTPServer{
 		Logr:         logr.Named("http"),
 		Scheduler:    rr,
@@ -68,9 +66,7 @@ func StartAPI(ctx context.Context, cfg *configs.APIConfig) {
 		fmt.Sprintf("%s:%d", cfg.HTTPHost, cfg.HTTPPort),
 		zmqAddress,
 	)
-	erg.Go(func() error {
-		return httpServer.Serve()
-	})
+	erg.Go(httpServer.Serve)
 
 	// wait for all servers to finish
 	if err := erg.Wait(); err != nil {
