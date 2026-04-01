@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	"github.com/amirhnajafiz/bedrock-api/pkg/enums"
+)
 
 // Session represents the client's requests.
 // Id: unique string that is the session key
@@ -9,11 +13,11 @@ import "time"
 // CreatedAt: session creation time
 // Spec: session details
 type Session struct {
-	Id        string    `json:"id"`
-	DockerDId string    `json:"dockerd_id"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	Spec      Spec      `json:"spec"`
+	Id        string              `json:"id"`
+	DockerDId string              `json:"dockerd_id"`
+	CreatedAt time.Time           `json:"created_at"`
+	Status    enums.SessionStatus `json:"status"`
+	Spec      Spec                `json:"spec"`
 }
 
 // Spec field of the session holds the user request.

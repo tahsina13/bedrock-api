@@ -1,10 +1,12 @@
 package enums
 
+type SessionStatus string
+
 // Session's status.
 const (
-	SessionStatusPending  = "pending"
-	SessionStatusRunning  = "running"
-	SessionStatusFailed   = "failed"
-	SessionStatusStopped  = "stopped"
-	SessionStatusFinished = "finished"
+	SessionStatusPending  SessionStatus = "pending"
+	SessionStatusRunning  SessionStatus = "running"
+	SessionStatusFailed   SessionStatus = "failed"
+	SessionStatusStopped  SessionStatus = "stopped"
+	SessionStatusFinished SessionStatus = "finished"
 )

@@ -12,7 +12,7 @@ type Packet struct {
 func NewPacket() Packet {
 	return Packet{
 		Headers:  make(map[string]string),
-		Sessions: nil,
+		Sessions: make([]Session, 0),
 	}
 }
 
@@ -30,10 +30,6 @@ func (p Packet) WithRegisterDaemon(name string) Packet {
 
 // WithSessions adds sessions to the packet.
 func (p Packet) WithSessions(sessions ...Session) Packet {
-	if p.Sessions == nil {
-		p.Sessions = make([]Session, 0)
-	}
-
 	for _, session := range sessions {
 		p.Sessions = append(p.Sessions, session)
 	}

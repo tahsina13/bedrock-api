@@ -46,12 +46,16 @@ func (z ZMQServer) socketHandler(in chan [][]byte, out chan [][]byte) {
 			continue
 		}
 
+		// create a response packet
+		responsePkt := models.NewPacket()
+		responsePkt.WithSender("api")
+
 		// check daemon registration
 		if val, ok := pkt.Headers["register_daemon"]; ok {
 			z.Scheduler.Append(val)
 			z.Logr.Info("new daemon registered", zap.String("name", val))
 
-			out <- [][]byte{event[0], pkt.ToBytes()}
+			out <- [][]byte{event[0], responsePkt.ToBytes()}
 			continue
 		}
 
@@ -60,12 +64,12 @@ func (z ZMQServer) socketHandler(in chan [][]byte, out chan [][]byte) {
 		if val, ok := pkt.Headers["sender"]; !ok {
 			z.Logr.Warn("sender header is missing")
 
-			out <- [][]byte{event[0], pkt.ToBytes()}
+			out <- [][]byte{event[0], responsePkt.ToBytes()}
 			continue
 		} else if !z.Scheduler.Exists(val) {
 			z.Logr.Warn("sender is not a registered daemon", zap.String("name", val))
 
-			out <- [][]byte{event[0], pkt.ToBytes()}
+			out <- [][]byte{event[0], responsePkt.ToBytes()}
 			continue
 		} else {
 			dockerd = val
@@ -73,27 +77,33 @@ func (z ZMQServer) socketHandler(in chan [][]byte, out chan [][]byte) {
 
 		// read sessions from packet and update KV storage
 		for _, session := range pkt.Sessions {
-			tmp, err := z.SessionStore.GetSession(session.Id, dockerd)
+			record, err := z.SessionStore.GetSession(session.Id, dockerd)
 			if err != nil {
-				z.Logr.Warn("failed to get session", zap.Error(err))
+				z.Logr.Warn(
+					"failed to get session",
+					zap.Error(err),
+					zap.String("session id", session.Id),
+					zap.String("dockerd id", dockerd),
+				)
 				continue
 			}
 
 			// transition session status using state machine
-			tmp.Status = z.SM.Transition(tmp.Status, session.Status)
+			record.Status = z.SM.Transition(record.Status, session.Status)
 
 			// update the session in KV storage
-			if err := z.SessionStore.SaveSession(tmp.Id, dockerd, tmp); err != nil {
-				z.Logr.Warn("failed to update session", zap.Error(err))
+			if err := z.SessionStore.SaveSession(record.Id, dockerd, record); err != nil {
+				z.Logr.Warn(
+					"failed to update session",
+					zap.Error(err),
+					zap.String("session id", session.Id),
+					zap.String("dockerd id", dockerd),
+				)
 				continue
 			}
 		}
 
-		// create a response packet
-		responsePkt := models.NewPacket()
-		responsePkt.WithSender("api")
-
-		// respond with sender sessions
+		// respond with dockerd sessions
 		sessions, err := z.SessionStore.ListSessionsByDockerDId(dockerd)
 		if err != nil {
 			z.Logr.Warn("failed to list sessions", zap.Error(err))
@@ -102,10 +112,12 @@ func (z ZMQServer) socketHandler(in chan [][]byte, out chan [][]byte) {
 			continue
 		}
 
+		// process the sessions and add them to the response packet
 		for _, session := range sessions {
 			responsePkt.Sessions = append(responsePkt.Sessions, *session)
 		}
 
+		// send the response packet back to the sender
 		out <- [][]byte{event[0], responsePkt.ToBytes()}
 	}
 }
