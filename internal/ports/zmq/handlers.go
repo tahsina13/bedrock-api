@@ -79,7 +79,8 @@ func (z ZMQServer) socketHandler(in chan [][]byte, out chan [][]byte) {
 				continue
 			}
 
-			tmp.Status = session.Status
+			// transition session status using state machine
+			tmp.Status = z.SM.Transition(tmp.Status, session.Status)
 
 			// update the session in KV storage
 			if err := z.SessionStore.SaveSession(tmp.Id, dockerd, tmp); err != nil {

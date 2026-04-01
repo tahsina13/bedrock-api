@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/amirhnajafiz/bedrock-api/internal/components/sessions"
+	statemachine "github.com/amirhnajafiz/bedrock-api/internal/components/state_machine"
 	"github.com/amirhnajafiz/bedrock-api/internal/scheduler"
 
 	"github.com/zeromq/goczmq"
@@ -16,6 +17,7 @@ type ZMQServer struct {
 	Logr         *zap.Logger
 	Scheduler    scheduler.Scheduler
 	SessionStore sessions.SessionStore
+	SM           *statemachine.StateMachine
 }
 
 func (z ZMQServer) Serve() error {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/amirhnajafiz/bedrock-api/internal/components/sessions"
+	statemachine "github.com/amirhnajafiz/bedrock-api/internal/components/state_machine"
 	"github.com/amirhnajafiz/bedrock-api/internal/configs"
 	"github.com/amirhnajafiz/bedrock-api/internal/logger"
 	"github.com/amirhnajafiz/bedrock-api/internal/ports/http"
@@ -48,6 +49,7 @@ func StartAPI(cfg *configs.APIConfig) {
 		Logr:         logr.Named("zmq"),
 		Scheduler:    scheduler.NewRoundRobin(),
 		SessionStore: ss,
+		SM:           statemachine.NewStateMachine(),
 	}
 	go func() {
 		if err := zmqServer.Serve(); err != nil {
