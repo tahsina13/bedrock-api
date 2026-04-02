@@ -32,12 +32,14 @@ func (d Dockerd) Command() *cobra.Command {
 		Short: "Docker Daemon",
 		Long:  "Docker Daemon is a containerization platform that allows you to build, ship, and run containers.",
 		Run: func(cmd *cobra.Command, args []string) {
-			StartDockerd(d.Ctx, d.Cfg)
+			if err := StartDockerd(d.Ctx, d.Cfg); err != nil {
+				panic(err)
+			}
 		},
 	}
 }
 
-func StartDockerd(ctx context.Context, cfg *configs.DockerdConfig) {
+func StartDockerd(ctx context.Context, cfg *configs.DockerdConfig) error {
 	// create a new logger instance
 	logr := logger.New(cfg.LogLevel)
 
@@ -74,14 +76,14 @@ func StartDockerd(ctx context.Context, cfg *configs.DockerdConfig) {
 	// check registration before main loop
 	if !registered {
 		logr.Error("API registration failed", zap.Int("retrys", cfg.APIConnectionRetrys))
-		return
+		return fmt.Errorf("API registration failed after %d retrys", cfg.APIConnectionRetrys)
 	}
 
 	// create Docker client and container manager
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		logr.Error("failed to create Docker client", zap.Error(err))
-		return
+		return err
 	}
 	defer cli.Close()
 
@@ -89,8 +91,17 @@ func StartDockerd(ctx context.Context, cfg *configs.DockerdConfig) {
 
 	// dockerd main loop
 	for {
+		// check if the context is done before each iteration
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		// interval between each API call
 		time.Sleep(30 * time.Second)
 
+		// get the list of containers
 		cts, err := cm.List(context.Background())
 		if err != nil {
 			logr.Warn("failed to monitor containers", zap.Error(err))
@@ -110,10 +121,10 @@ func StartDockerd(ctx context.Context, cfg *configs.DockerdConfig) {
 			})
 		}
 
-		// build a packet
+		// build a packet with the container sessions
 		packet := models.NewPacket().WithSender(name).WithSessions(sessions...)
 
-		// send packet to ZMQ server
+		// send the packet to ZMQ server
 		resp, err := zclient.Send(packet.ToBytes())
 		if err != nil {
 			logr.Warn("failed to call API", zap.Error(err))

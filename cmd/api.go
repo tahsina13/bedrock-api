@@ -30,12 +30,40 @@ func (a API) Command() *cobra.Command {
 		Short: "API Server",
 		Long:  "API Server is a RESTful API server that provides endpoints for managing and interacting with the system.",
 		Run: func(cmd *cobra.Command, args []string) {
-			StartAPI(a.Ctx, a.Cfg)
+			if a.Cfg.FullStackMode {
+				// create a new error group to run both the API and the Docker Daemon in full stack mode
+				erg, ctx := errgroup.WithContext(a.Ctx)
+
+				// start the API server in a separate goroutine
+				erg.Go(func() error {
+					return StartAPI(ctx, a.Cfg)
+				})
+
+				// start the Docker Daemon in a separate goroutine
+				erg.Go(func() error {
+					return StartDockerd(ctx, &configs.DockerdConfig{
+						Name:                "hostname",
+						LogLevel:            a.Cfg.LogLevel,
+						APISocketHost:       a.Cfg.SocketHost,
+						APISocketPort:       a.Cfg.SocketPort,
+						APIConnectionRetrys: 10,
+					})
+				})
+
+				// wait for both servers to finish
+				if err := erg.Wait(); err != nil {
+					logger.New(a.Cfg.LogLevel).Error("full stack mode failed", zap.Error(err))
+				}
+			} else {
+				if err := StartAPI(a.Ctx, a.Cfg); err != nil {
+					panic(err)
+				}
+			}
 		},
 	}
 }
 
-func StartAPI(ctx context.Context, cfg *configs.APIConfig) {
+func StartAPI(ctx context.Context, cfg *configs.APIConfig) error {
 	// create public shared modules
 	logr := logger.New(cfg.LogLevel)
 	rr := scheduler.NewRoundRobin()
@@ -71,5 +99,8 @@ func StartAPI(ctx context.Context, cfg *configs.APIConfig) {
 	// wait for all servers to finish
 	if err := erg.Wait(); err != nil {
 		logr.Error("api failed", zap.Error(err))
+		return err
 	}
+
+	return nil
 }

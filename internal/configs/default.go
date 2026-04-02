@@ -10,6 +10,7 @@ func Default() *Config {
 			SocketHost:     "127.0.0.1",
 			SocketPort:     8081,
 			SocketHandlers: 1,
+			FullStackMode:  false,
 		},
 		Dockerd: &DockerdConfig{
 			Name:                "hostname",
