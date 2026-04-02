@@ -25,12 +25,6 @@ func (p Packet) WithSender(sender string) Packet {
 	return p
 }
 
-// WithRegisterDaemon adds the register daemon header.
-func (p Packet) WithRegisterDaemon(name string) Packet {
-	p.Headers["register_daemon"] = name
-	return p
-}
-
 // WithSessions adds sessions to the packet.
 func (p Packet) WithSessions(sessions ...Session) Packet {
 	for _, session := range sessions {

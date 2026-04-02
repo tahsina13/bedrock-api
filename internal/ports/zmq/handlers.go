@@ -78,25 +78,17 @@ func (z ZMQServer) processEvent(event [][]byte) [][]byte {
 	responsePkt := models.NewPacket()
 	responsePkt.WithSender("api")
 
-	// check daemon registration
-	if val, ok := pkt.Headers["register_daemon"]; ok {
-		z.Scheduler.Append(val)
-		z.Logr.Info("new daemon registered", zap.String("name", val))
-
-		return [][]byte{event[0], responsePkt.ToBytes()}
-	}
-
 	// check sender header and registration status, if invalid, reply with empty packet
 	dockerd := ""
 	if val, ok := pkt.Headers["sender"]; !ok {
 		z.Logr.Warn("sender header is missing")
 		return [][]byte{event[0], responsePkt.ToBytes()}
-	} else if !z.Scheduler.Exists(val) {
-		z.Logr.Warn("sender is not a registered daemon", zap.String("name", val))
-		return [][]byte{event[0], responsePkt.ToBytes()}
 	} else {
 		dockerd = val
 	}
+
+	// update health status of the sender daemon
+	z.healthChannel <- dockerd
 
 	// read sessions from packet and update KV storage
 	for _, session := range pkt.Sessions {

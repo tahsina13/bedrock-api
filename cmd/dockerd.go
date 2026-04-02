@@ -55,30 +55,6 @@ func StartDockerd(ctx context.Context, cfg *configs.DockerdConfig) error {
 	// build the ZMQ client
 	zclient := zmqclient.NewZMQClient(fmt.Sprintf("tcp://%s:%d", cfg.APISocketHost, cfg.APISocketPort))
 
-	// register this docker daemon with API
-	registered := false
-	_, err := zclient.Send(models.NewPacket().WithRegisterDaemon(name).ToBytes())
-	if err != nil {
-		logr.Warn("register daemon failed", zap.Error(err))
-		for range cfg.APIConnectionRetrys {
-			_, e := zclient.Send(models.NewPacket().WithRegisterDaemon(name).ToBytes())
-			if e == nil {
-				registered = true
-				break
-			}
-
-			time.Sleep(cfg.APIConnectionRetryInterval)
-		}
-	} else {
-		registered = true
-	}
-
-	// check registration before main loop
-	if !registered {
-		logr.Error("API registration failed", zap.Int("retrys", cfg.APIConnectionRetrys))
-		return fmt.Errorf("API registration failed after %d retrys", cfg.APIConnectionRetrys)
-	}
-
 	// create Docker client and container manager
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {

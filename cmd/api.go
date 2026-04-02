@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/amirhnajafiz/bedrock-api/internal/components/sessions"
 	"github.com/amirhnajafiz/bedrock-api/internal/configs"
@@ -42,11 +43,12 @@ func (a API) Command() *cobra.Command {
 				// start the Docker Daemon in a separate goroutine
 				erg.Go(func() error {
 					return StartDockerd(ctx, &configs.DockerdConfig{
-						Name:                "hostname",
-						LogLevel:            a.Cfg.LogLevel,
-						APISocketHost:       a.Cfg.SocketHost,
-						APISocketPort:       a.Cfg.SocketPort,
-						APIConnectionRetrys: 10,
+						Name:          "hostname",
+						LogLevel:      a.Cfg.LogLevel,
+						APISocketHost: a.Cfg.SocketHost,
+						APISocketPort: a.Cfg.SocketPort,
+						APITimeout:    10 * time.Second,
+						PullInterval:  30 * time.Second,
 					})
 				})
 
@@ -81,6 +83,7 @@ func StartAPI(ctx context.Context, cfg *configs.APIConfig) error {
 	}.Build(
 		zmqAddress,
 		cfg.SocketHandlers,
+		cfg.DockerDHealthCheckInterval,
 		ctx,
 	)
 	erg.Go(zmqServer.Serve)
