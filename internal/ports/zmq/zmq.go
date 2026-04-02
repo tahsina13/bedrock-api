@@ -22,18 +22,18 @@ type ZMQServer struct {
 	SessionStore sessions.SessionStore
 
 	// private modules
-	handlers int
-	address  string
-	ctx      context.Context
-	sm       *statemachine.StateMachine
+	eventHandlers int
+	address       string
+	ctx           context.Context
+	stateMachine  *statemachine.StateMachine
 }
 
 // Build initializes the ZMQServer with the specified address and returns the server instance.
-func (z ZMQServer) Build(address string, handlers int, ctx context.Context) *ZMQServer {
+func (z ZMQServer) Build(address string, eventHandlers int, ctx context.Context) *ZMQServer {
 	z.address = address
-	z.handlers = handlers
+	z.eventHandlers = eventHandlers
 	z.ctx = ctx
-	z.sm = statemachine.NewStateMachine()
+	z.stateMachine = statemachine.NewStateMachine()
 
 	return &z
 }
@@ -59,7 +59,7 @@ func (z ZMQServer) Serve() error {
 	erg.Go(func() error { return z.socketSender(ctx, router, out) })
 
 	// main loop to handle incoming messages and send responses
-	for i := 0; i < z.handlers; i++ {
+	for i := 0; i < z.eventHandlers; i++ {
 		erg.Go(func() error { return z.socketHandler(ctx, in, out) })
 	}
 

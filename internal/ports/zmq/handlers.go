@@ -112,7 +112,7 @@ func (z ZMQServer) processEvent(event [][]byte) [][]byte {
 		}
 
 		// transition session status using state machine
-		record.Status = z.sm.Transition(record.Status, session.Status)
+		record.Status = z.stateMachine.Transition(record.Status, session.Status)
 
 		// update the session in KV storage
 		if err := z.SessionStore.SaveSession(record.Id, dockerd, record); err != nil {

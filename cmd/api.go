@@ -66,8 +66,8 @@ func (a API) Command() *cobra.Command {
 func StartAPI(ctx context.Context, cfg *configs.APIConfig) error {
 	// create public shared modules
 	logr := logger.New(cfg.LogLevel)
-	rr := scheduler.NewRoundRobin()
-	ss := sessions.NewSessionStore(storage.NewGoCache())
+	rrScheduler := scheduler.NewRoundRobin()
+	sessionStore := sessions.NewSessionStore(storage.NewGoCache())
 
 	// create an errgroup with the provided context
 	erg, ctx := errgroup.WithContext(ctx)
@@ -76,8 +76,8 @@ func StartAPI(ctx context.Context, cfg *configs.APIConfig) error {
 	zmqAddress := fmt.Sprintf("tcp://%s:%d", cfg.SocketHost, cfg.SocketPort)
 	zmqServer := zmq.ZMQServer{
 		Logr:         logr.Named("zmq"),
-		Scheduler:    rr,
-		SessionStore: ss,
+		Scheduler:    rrScheduler,
+		SessionStore: sessionStore,
 	}.Build(
 		zmqAddress,
 		cfg.SocketHandlers,
@@ -88,8 +88,8 @@ func StartAPI(ctx context.Context, cfg *configs.APIConfig) error {
 	// build and start the HTTP server in a separate goroutine
 	httpServer := http.HTTPServer{
 		Logr:         logr.Named("http"),
-		Scheduler:    rr,
-		SessionStore: ss,
+		Scheduler:    rrScheduler,
+		SessionStore: sessionStore,
 	}.Build(
 		fmt.Sprintf("%s:%d", cfg.HTTPHost, cfg.HTTPPort),
 		zmqAddress,
