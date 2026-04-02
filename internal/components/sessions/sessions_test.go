@@ -7,6 +7,7 @@ import (
 
 	"github.com/amirhnajafiz/bedrock-api/internal/storage/gocache"
 	"github.com/amirhnajafiz/bedrock-api/pkg/models"
+	"github.com/amirhnajafiz/bedrock-api/pkg/xerrors"
 )
 
 // newTestSessionStore creates a SessionStore backed by an in-memory gocache instance.
@@ -57,8 +58,8 @@ func TestSessionStore_Get_NotFound(t *testing.T) {
 	}
 
 	_, err := s.GetSession("nope", "d1")
-	if !errors.Is(err, gocache.ErrNotFound) {
-		t.Errorf("GetSession missing: got %v, want gocache.ErrNotFound", err)
+	if !errors.Is(err, xerrors.StorageErrNotFound) {
+		t.Errorf("GetSession missing: got %v, want xerrors.StorageErrNotFound", err)
 	}
 }
 
@@ -70,8 +71,8 @@ func TestSessionStore_Get_WrongDockerdId(t *testing.T) {
 	_ = s.SaveSession("s1", "d1", &models.Session{Id: "s1", DockerDId: "d1", Spec: models.Spec{Image: "a"}})
 
 	_, err := s.GetSession("s1", "d2")
-	if !errors.Is(err, gocache.ErrNotFound) {
-		t.Errorf("GetSession wrong dockerdId: got %v, want gocache.ErrNotFound", err)
+	if !errors.Is(err, xerrors.StorageErrNotFound) {
+		t.Errorf("GetSession wrong dockerdId: got %v, want xerrors.StorageErrNotFound", err)
 	}
 }
 
@@ -105,8 +106,8 @@ func TestSessionStore_Delete(t *testing.T) {
 	}
 
 	_, err := s.GetSession("s1", "d1")
-	if !errors.Is(err, gocache.ErrNotFound) {
-		t.Errorf("GetSession after delete: got %v, want gocache.ErrNotFound", err)
+	if !errors.Is(err, xerrors.StorageErrNotFound) {
+		t.Errorf("GetSession after delete: got %v, want xerrors.StorageErrNotFound", err)
 	}
 }
 

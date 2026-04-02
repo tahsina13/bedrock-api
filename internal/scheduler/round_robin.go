@@ -3,6 +3,8 @@ package scheduler
 import (
 	"slices"
 	"sync"
+
+	"github.com/amirhnajafiz/bedrock-api/pkg/xerrors"
 )
 
 var (
@@ -65,7 +67,7 @@ func (r *RoundRobinScheduler) Pick() (string, error) {
 
 	// error if the queue is empty
 	if len(r.queue) == 0 {
-		return "", ErrEmpty
+		return "", xerrors.SchedulerErrEmpty
 	}
 
 	item := r.queue[0]

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/amirhnajafiz/bedrock-api/internal/storage/gocache"
+	"github.com/amirhnajafiz/bedrock-api/pkg/xerrors"
 )
 
 func newTestBackend() *gocache.Backend {
@@ -33,8 +34,8 @@ func TestBackend_Get_NotFound(t *testing.T) {
 	b := newTestBackend()
 
 	_, err := b.Get("missing")
-	if !errors.Is(err, gocache.ErrNotFound) {
-		t.Errorf("Get missing key: got %v, want gocache.ErrNotFound", err)
+	if !errors.Is(err, xerrors.StorageErrNotFound) {
+		t.Errorf("Get missing key: got %v, want xerrors.StorageErrNotFound", err)
 	}
 }
 
@@ -64,8 +65,8 @@ func TestBackend_Delete(t *testing.T) {
 	}
 
 	_, err := b.Get("k")
-	if !errors.Is(err, gocache.ErrNotFound) {
-		t.Errorf("Get after Delete: got %v, want gocache.ErrNotFound", err)
+	if !errors.Is(err, xerrors.StorageErrNotFound) {
+		t.Errorf("Get after Delete: got %v, want xerrors.StorageErrNotFound", err)
 	}
 }
 

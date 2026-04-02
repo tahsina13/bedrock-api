@@ -9,9 +9,9 @@ import (
 	"github.com/amirhnajafiz/bedrock-api/internal/components/containers"
 	"github.com/amirhnajafiz/bedrock-api/internal/configs"
 	"github.com/amirhnajafiz/bedrock-api/internal/logger"
+	zmqclient "github.com/amirhnajafiz/bedrock-api/internal/zmq_client"
 	"github.com/amirhnajafiz/bedrock-api/pkg/enums"
 	"github.com/amirhnajafiz/bedrock-api/pkg/models"
-	zmqclient "github.com/amirhnajafiz/bedrock-api/pkg/zmq_client"
 
 	"github.com/docker/docker/client"
 	"github.com/google/uuid"

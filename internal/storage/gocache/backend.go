@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/amirhnajafiz/bedrock-api/pkg/xerrors"
 	lib "github.com/eko/gocache/lib/v4/cache"
 	lib_store "github.com/eko/gocache/lib/v4/store"
 	gocache_store "github.com/eko/gocache/store/go_cache/v4"
@@ -50,7 +51,7 @@ func (b *Backend) Get(key string) ([]byte, error) {
 	val, err := b.cache.Get(context.Background(), key)
 	if err != nil {
 		if errors.Is(err, lib_store.NotFound{}) {
-			return nil, ErrNotFound
+			return nil, xerrors.StorageErrNotFound
 		}
 		return nil, err
 	}

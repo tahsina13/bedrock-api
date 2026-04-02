@@ -6,7 +6,7 @@ import (
 	"github.com/amirhnajafiz/bedrock-api/internal/components/sessions"
 	"github.com/amirhnajafiz/bedrock-api/internal/scheduler"
 	"github.com/amirhnajafiz/bedrock-api/internal/storage"
-	zmqclient "github.com/amirhnajafiz/bedrock-api/pkg/zmq_client"
+	zmqclient "github.com/amirhnajafiz/bedrock-api/internal/zmq_client"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
