@@ -33,6 +33,19 @@ func (r *RoundRobinScheduler) Append(item string) {
 	r.queue = append(r.queue, item)
 }
 
+func (r *RoundRobinScheduler) Drop(item string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// remove item from queue
+	for i, v := range r.queue {
+		if v == item {
+			r.queue = append(r.queue[:i], r.queue[i+1:]...)
+			return
+		}
+	}
+}
+
 func (r *RoundRobinScheduler) Exists(item string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
