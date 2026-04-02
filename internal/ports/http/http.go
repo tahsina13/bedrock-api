@@ -4,9 +4,9 @@ import (
 	"fmt"
 
 	"github.com/amirhnajafiz/bedrock-api/internal/components/sessions"
+	zmqclient "github.com/amirhnajafiz/bedrock-api/internal/components/zmq_client"
 	"github.com/amirhnajafiz/bedrock-api/internal/scheduler"
 	"github.com/amirhnajafiz/bedrock-api/internal/storage"
-	zmqclient "github.com/amirhnajafiz/bedrock-api/internal/zmq_client"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"

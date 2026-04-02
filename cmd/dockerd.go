@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/amirhnajafiz/bedrock-api/internal/components/containers"
+	zmqclient "github.com/amirhnajafiz/bedrock-api/internal/components/zmq_client"
 	"github.com/amirhnajafiz/bedrock-api/internal/configs"
 	"github.com/amirhnajafiz/bedrock-api/internal/logger"
-	zmqclient "github.com/amirhnajafiz/bedrock-api/internal/zmq_client"
 	"github.com/amirhnajafiz/bedrock-api/pkg/enums"
 	"github.com/amirhnajafiz/bedrock-api/pkg/models"
 
