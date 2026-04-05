@@ -1,24 +1,10 @@
 package containers
 
-import "context"
+import (
+	"context"
 
-// ContainerConfig holds the parameters needed to create a container.
-type ContainerConfig struct {
-	Name    string            // Container name.
-	Image   string            // Docker image.
-	Env     []string          // Environment variables in KEY=VALUE format.
-	Cmd     []string          // Command and arguments.
-	Volumes map[string]string // Host path to container path bind mounts.
-}
-
-// ContainerInfo describes a container's current state.
-type ContainerInfo struct {
-	ID      string
-	Name    string
-	Image   string
-	Status  string
-	Running bool
-}
+	"github.com/docker/docker/client"
+)
 
 // ContainerManager manages Docker container lifecycles.
 // Implementations must be safe for concurrent use.
@@ -33,4 +19,14 @@ type ContainerManager interface {
 	Stop(ctx context.Context, containerID string) error
 	// Remove removes a container.
 	Remove(ctx context.Context, containerID string) error
+}
+
+// NewDockerManager returns a ContainerManager backed by the Docker client.
+func NewDockerManager() (ContainerManager, error) {
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return nil, err
+	}
+
+	return &dockerManager{client: cli}, nil
 }

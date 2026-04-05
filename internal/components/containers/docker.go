@@ -2,17 +2,13 @@ package containers
 
 import (
 	"context"
-	"io"
 	"os"
 	"strings"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // Label applied to every container created by this manager so that List can
@@ -22,25 +18,9 @@ const (
 	labelValue     = "bedrock-dockerd"
 )
 
-// dockerClient abstracts the Docker Engine SDK methods used by the manager.
-// The concrete *client.Client satisfies this interface.
-type dockerClient interface {
-	ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *ocispec.Platform, containerName string) (container.CreateResponse, error)
-	ContainerStart(ctx context.Context, containerID string, options container.StartOptions) error
-	ContainerStop(ctx context.Context, containerID string, options container.StopOptions) error
-	ContainerRemove(ctx context.Context, containerID string, options container.RemoveOptions) error
-	ContainerList(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
-	ContainerLogs(ctx context.Context, container string, options container.LogsOptions) (io.ReadCloser, error)
-}
-
 // dockerManager implements ContainerManager using the Docker Engine API.
 type dockerManager struct {
-	client dockerClient
-}
-
-// NewDockerManager returns a ContainerManager backed by the given Docker client.
-func NewDockerManager(cli *client.Client) ContainerManager {
-	return &dockerManager{client: cli}
+	client ContainerClient
 }
 
 // Create pulls together the container configuration from cfg, creates the
@@ -125,11 +105,10 @@ func (m *dockerManager) List(ctx context.Context) ([]ContainerInfo, error) {
 			name = strings.TrimPrefix(c.Names[0], "/")
 		}
 		infos = append(infos, ContainerInfo{
-			ID:      c.ID,
-			Name:    name,
-			Image:   c.Image,
-			Status:  c.Status,
-			Running: c.State == "running",
+			ID:     c.ID,
+			Name:   name,
+			Image:  c.Image,
+			Status: c.Status,
 		})
 	}
 

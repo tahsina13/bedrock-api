@@ -1,0 +1,50 @@
+package containers
+
+import (
+	"context"
+	"io"
+
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/network"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+)
+
+// ContainerClient abstracts the Docker Engine SDK methods used by the manager.
+type ContainerClient interface {
+	ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *ocispec.Platform, containerName string) (container.CreateResponse, error)
+	ContainerStart(ctx context.Context, containerID string, options container.StartOptions) error
+	ContainerStop(ctx context.Context, containerID string, options container.StopOptions) error
+	ContainerRemove(ctx context.Context, containerID string, options container.RemoveOptions) error
+	ContainerList(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
+	ContainerLogs(ctx context.Context, container string, options container.LogsOptions) (io.ReadCloser, error)
+}
+
+// ContainerConfig holds the parameters needed to create a container.
+type ContainerConfig struct {
+	// Container name.
+	Name string
+	// Container image and tag, e.g. "ubuntu:latest".
+	Image string
+	// Environment variables in "KEY=VALUE" format.
+	Env []string
+	// Command to run in the container. If empty, the image's default CMD is used.
+	Cmd []string
+	// Volumes to mount, mapping host paths to container paths.
+	Volumes map[string]string
+	// Flags to control container behavior (e.g. privileged, network mode).
+	Flags map[string]any
+}
+
+// ContainerInfo describes a container's current state.
+type ContainerInfo struct {
+	// Unique identifier of the container.
+	ID string
+	// Human-readable name of the container.
+	Name string
+	// Image the container was created from, e.g. "ubuntu:latest".
+	Image string
+	// Current status of the container, e.g. "running", "exited".
+	Status string
+	// Exit code if the container has finished, or nil if still running.
+	ExitCode *int
+}

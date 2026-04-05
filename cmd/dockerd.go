@@ -13,7 +13,6 @@ import (
 	"github.com/amirhnajafiz/bedrock-api/pkg/enums"
 	"github.com/amirhnajafiz/bedrock-api/pkg/models"
 
-	"github.com/docker/docker/client"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
@@ -56,14 +55,11 @@ func StartDockerd(ctx context.Context, cfg *configs.DockerdConfig) error {
 	zclient := zmqclient.NewZMQClient(fmt.Sprintf("tcp://%s:%d", cfg.APISocketHost, cfg.APISocketPort))
 
 	// create Docker client and container manager
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cm, err := containers.NewDockerManager()
 	if err != nil {
-		logr.Error("failed to create Docker client", zap.Error(err))
+		logr.Error("failed to create Docker Manager", zap.Error(err))
 		return err
 	}
-	defer cli.Close()
-
-	cm := containers.NewDockerManager(cli)
 
 	// dockerd main loop
 	for {
@@ -88,9 +84,14 @@ func StartDockerd(ctx context.Context, cfg *configs.DockerdConfig) error {
 		sessions := make([]models.Session, 0)
 		for _, c := range cts {
 			status := enums.SessionStatusRunning
-			if !c.Running {
-				status = enums.SessionStatusFinished
+			if c.ExitCode != nil {
+				if *c.ExitCode == 0 {
+					status = enums.SessionStatusFinished
+				} else {
+					status = enums.SessionStatusFailed
+				}
 			}
+
 			sessions = append(sessions, models.Session{
 				Id:     c.ID,
 				Status: status,

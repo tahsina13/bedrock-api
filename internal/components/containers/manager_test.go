@@ -310,11 +310,11 @@ func TestList(t *testing.T) {
 		t.Fatalf("List: got %d containers, want 2", len(infos))
 	}
 
-	if infos[0].ID != "id1" || infos[0].Name != "tracer-1" || infos[0].Image != "tracer:latest" || !infos[0].Running {
+	if infos[0].ID != "id1" || infos[0].Name != "tracer-1" || infos[0].Image != "tracer:latest" || infos[0].Status != "Running" {
 		t.Errorf("List[0]: got %+v", infos[0])
 	}
 
-	if infos[1].ID != "id2" || infos[1].Name != "target-1" || infos[1].Running {
+	if infos[1].ID != "id2" || infos[1].Name != "target-1" || infos[1].Status == "Running" {
 		t.Errorf("List[1]: got %+v", infos[1])
 	}
 }
