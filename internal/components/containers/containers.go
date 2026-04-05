@@ -46,6 +46,8 @@ type ContainerInfo struct {
 	Image string
 	// Current status of the container, e.g. "running", "exited".
 	Status string
+	// Exited indicates whether the container has finished execution.
+	Exited bool
 	// Exit code if the container has finished.
 	ExitCode int
 }

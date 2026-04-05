@@ -14,8 +14,8 @@ import (
 // Label applied to every container created by this manager so that List can
 // filter them from unrelated containers on the same Docker host.
 const (
-	labelManagedBy = "bedrock.managed-by"
-	labelValue     = "bedrock-dockerd"
+	labelKey   = "bedrock.managed-by"
+	labelValue = "bedrock-dockerd"
 )
 
 // dockerManager implements ContainerManager using the Docker Engine API.
@@ -24,9 +24,9 @@ type dockerManager struct {
 }
 
 // Create pulls together the container configuration from cfg, creates the
-// container on the Docker host, and starts it. If start fails the container
-// is removed on a best-effort basis so we don't leak resources.
+// container on the Docker host, and starts it.
 func (m *dockerManager) Create(ctx context.Context, cfg ContainerConfig) (string, error) {
+	// set up volume mounts
 	var mounts []mount.Mount
 	for hostPath, containerPath := range cfg.Volumes {
 		mounts = append(mounts, mount.Mount{
@@ -36,10 +36,11 @@ func (m *dockerManager) Create(ctx context.Context, cfg ContainerConfig) (string
 		})
 	}
 
+	// set up host config with mounts and flags
 	hostConfig := &container.HostConfig{
 		AutoRemove:    false,
 		Mounts:        mounts,
-		RestartPolicy: container.RestartPolicy{Name: "never"},
+		RestartPolicy: container.RestartPolicy{Name: "no"},
 	}
 	if privileged, ok := cfg.Flags["privileged"].(bool); ok && privileged {
 		hostConfig.Privileged = true
@@ -48,6 +49,7 @@ func (m *dockerManager) Create(ctx context.Context, cfg ContainerConfig) (string
 		hostConfig.PidMode = container.PidMode(pidMode)
 	}
 
+	// create and start the container
 	resp, err := m.client.ContainerCreate(
 		ctx,
 		&container.Config{
@@ -55,16 +57,19 @@ func (m *dockerManager) Create(ctx context.Context, cfg ContainerConfig) (string
 			Env:   cfg.Env,
 			Cmd:   cfg.Cmd,
 			Labels: map[string]string{
-				labelManagedBy: labelValue,
+				labelKey: labelValue,
 			},
 		},
 		hostConfig,
-		nil, nil, cfg.Name,
+		nil,
+		nil,
+		cfg.Name,
 	)
 	if err != nil {
 		return "", err
 	}
 
+	// start the container
 	if err := m.client.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		_ = m.client.ContainerRemove(ctx, resp.ID, container.RemoveOptions{})
 		return "", err
@@ -101,7 +106,7 @@ func (m *dockerManager) List(ctx context.Context) ([]ContainerInfo, error) {
 	raw, err := m.client.ContainerList(ctx, container.ListOptions{
 		All: true,
 		Filters: filters.NewArgs(
-			filters.Arg("label", labelManagedBy+"="+labelValue),
+			filters.Arg("label", labelKey+"="+labelValue),
 		),
 	})
 	if err != nil {
@@ -115,18 +120,21 @@ func (m *dockerManager) List(ctx context.Context) ([]ContainerInfo, error) {
 			name = strings.TrimPrefix(c.Names[0], "/")
 		}
 
+		// create a container info instance
 		cinfo := ContainerInfo{
-			ID:     c.ID,
-			Name:   name,
-			Image:  c.Image,
-			Status: c.Status,
+			ID:       c.ID,
+			Name:     name,
+			Image:    c.Image,
+			Status:   c.Status,
+			Exited:   false,
+			ExitCode: 0,
 		}
 
 		// call ContainerInspect to get the exit code if the container has finished
 		if inspect, err := m.client.ContainerInspect(ctx, c.ID); err == nil {
 			if inspect.State != nil && !inspect.State.Running {
-				exitCode := int(inspect.State.ExitCode)
-				cinfo.ExitCode = exitCode
+				cinfo.Exited = true
+				cinfo.ExitCode = int(inspect.State.ExitCode)
 			}
 		}
 

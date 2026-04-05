@@ -1,7 +1,6 @@
 package containers
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -11,76 +10,8 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/pkg/stdcopy"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
-
-// mockDockerClient implements dockerClient for unit testing.
-type mockDockerClient struct {
-	createFn func(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *ocispec.Platform, containerName string) (container.CreateResponse, error)
-	startFn  func(ctx context.Context, containerID string, options container.StartOptions) error
-	stopFn   func(ctx context.Context, containerID string, options container.StopOptions) error
-	removeFn func(ctx context.Context, containerID string, options container.RemoveOptions) error
-	listFn   func(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
-	logsFn   func(ctx context.Context, container string, options container.LogsOptions) (io.ReadCloser, error)
-}
-
-func (m *mockDockerClient) ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *ocispec.Platform, containerName string) (container.CreateResponse, error) {
-	if m.createFn != nil {
-		return m.createFn(ctx, config, hostConfig, networkingConfig, platform, containerName)
-	}
-	return container.CreateResponse{ID: "mock-id"}, nil
-}
-
-func (m *mockDockerClient) ContainerStart(ctx context.Context, containerID string, options container.StartOptions) error {
-	if m.startFn != nil {
-		return m.startFn(ctx, containerID, options)
-	}
-	return nil
-}
-
-func (m *mockDockerClient) ContainerStop(ctx context.Context, containerID string, options container.StopOptions) error {
-	if m.stopFn != nil {
-		return m.stopFn(ctx, containerID, options)
-	}
-	return nil
-}
-
-func (m *mockDockerClient) ContainerRemove(ctx context.Context, containerID string, options container.RemoveOptions) error {
-	if m.removeFn != nil {
-		return m.removeFn(ctx, containerID, options)
-	}
-	return nil
-}
-
-func (m *mockDockerClient) ContainerList(ctx context.Context, options container.ListOptions) ([]container.Summary, error) {
-	if m.listFn != nil {
-		return m.listFn(ctx, options)
-	}
-	return nil, nil
-}
-
-func (m *mockDockerClient) ContainerLogs(ctx context.Context, ctr string, options container.LogsOptions) (io.ReadCloser, error) {
-	if m.logsFn != nil {
-		return m.logsFn(ctx, ctr, options)
-	}
-	return io.NopCloser(&bytes.Buffer{}), nil
-}
-
-func (m *mockDockerClient) ContainerInspect(ctx context.Context, containerID string) (container.InspectResponse, error) {
-	return container.InspectResponse{}, nil
-}
-
-// newMockLogReader returns an io.ReadCloser whose content is encoded in the
-// Docker multiplexed stream format so that stdcopy.StdCopy can decode it.
-func newMockLogReader(content string) io.ReadCloser {
-	var buf bytes.Buffer
-	w := stdcopy.NewStdWriter(&buf, stdcopy.Stdout)
-	_, _ = w.Write([]byte(content))
-	return io.NopCloser(&buf)
-}
-
-// --- Create ---
 
 func TestCreate(t *testing.T) {
 	var capturedConfig *container.Config
@@ -127,8 +58,8 @@ func TestCreate(t *testing.T) {
 	if len(capturedConfig.Cmd) != 2 || capturedConfig.Cmd[0] != "echo" {
 		t.Errorf("Create: cmd = %v, want [echo hello]", capturedConfig.Cmd)
 	}
-	if capturedConfig.Labels[labelManagedBy] != labelValue {
-		t.Errorf("Create: label %q = %q, want %q", labelManagedBy, capturedConfig.Labels[labelManagedBy], labelValue)
+	if capturedConfig.Labels[labelKey] != labelValue {
+		t.Errorf("Create: label %q = %q, want %q", labelValue, capturedConfig.Labels[labelKey], labelValue)
 	}
 	if len(capturedHost.Mounts) != 1 {
 		t.Fatalf("Create: got %d mounts, want 1", len(capturedHost.Mounts))
@@ -211,8 +142,6 @@ func TestCreate_StartErrorCleansUp(t *testing.T) {
 	}
 }
 
-// --- StoreLogs ---
-
 func TestStoreLogs(t *testing.T) {
 	mock := &mockDockerClient{
 		logsFn: func(_ context.Context, _ string, _ container.LogsOptions) (io.ReadCloser, error) {
@@ -291,8 +220,6 @@ func TestStoreLogs_RequestsStdoutAndStderr(t *testing.T) {
 	}
 }
 
-// --- List ---
-
 func TestList(t *testing.T) {
 	mock := &mockDockerClient{
 		listFn: func(_ context.Context, _ container.ListOptions) ([]container.Summary, error) {
@@ -300,6 +227,23 @@ func TestList(t *testing.T) {
 				{ID: "id1", Names: []string{"/tracer-1"}, Image: "tracer:latest", State: "running", Status: "Up 5 minutes"},
 				{ID: "id2", Names: []string{"/target-1"}, Image: "target:latest", State: "exited", Status: "Exited (0) 2 minutes ago"},
 			}, nil
+		},
+		inspectFn: func(_ context.Context, containerID string) (container.InspectResponse, error) {
+			switch containerID {
+			case "id1":
+				return container.InspectResponse{
+					ContainerJSONBase: &container.ContainerJSONBase{
+						State: &container.State{Running: true},
+					},
+				}, nil
+			case "id2":
+				return container.InspectResponse{
+					ContainerJSONBase: &container.ContainerJSONBase{
+						State: &container.State{Running: false, ExitCode: 0},
+					},
+				}, nil
+			}
+			return container.InspectResponse{}, errors.New("not found")
 		},
 	}
 
@@ -314,11 +258,11 @@ func TestList(t *testing.T) {
 		t.Fatalf("List: got %d containers, want 2", len(infos))
 	}
 
-	if infos[0].ID != "id1" || infos[0].Name != "tracer-1" || infos[0].Image != "tracer:latest" || infos[0].Status != "Running" {
+	if infos[0].ID != "id1" || infos[0].Name != "tracer-1" || infos[0].Image != "tracer:latest" || infos[0].Exited {
 		t.Errorf("List[0]: got %+v", infos[0])
 	}
 
-	if infos[1].ID != "id2" || infos[1].Name != "target-1" || infos[1].Status == "Running" {
+	if infos[1].ID != "id2" || infos[1].Name != "target-1" || !infos[1].Exited || infos[1].ExitCode != 0 {
 		t.Errorf("List[1]: got %+v", infos[1])
 	}
 }
@@ -360,7 +304,7 @@ func TestList_VerifiesLabelFilter(t *testing.T) {
 	}
 
 	got := capturedOpts.Filters.Get("label")
-	want := labelManagedBy + "=" + labelValue
+	want := labelKey + "=" + labelValue
 	found := false
 	for _, v := range got {
 		if v == want {
@@ -395,6 +339,13 @@ func TestList_NameTrimming(t *testing.T) {
 				{ID: "id1", Names: nil, State: "running"},
 			}, nil
 		},
+		inspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
+			return container.InspectResponse{
+				ContainerJSONBase: &container.ContainerJSONBase{
+					State: &container.State{Running: true},
+				},
+			}, nil
+		},
 	}
 
 	mgr := &dockerManager{client: mock}
@@ -408,8 +359,6 @@ func TestList_NameTrimming(t *testing.T) {
 		t.Errorf("List no-name: got name %q, want empty", infos[0].Name)
 	}
 }
-
-// --- Stop ---
 
 func TestStop(t *testing.T) {
 	stoppedID := ""
@@ -446,8 +395,6 @@ func TestStop_Error(t *testing.T) {
 		t.Fatal("Stop missing container: expected error, got nil")
 	}
 }
-
-// --- Remove ---
 
 func TestRemove(t *testing.T) {
 	removedID := ""

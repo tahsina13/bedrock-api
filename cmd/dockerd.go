@@ -80,11 +80,11 @@ func StartDockerd(ctx context.Context, cfg *configs.DockerdConfig) error {
 			continue
 		}
 
-		// TODO: must refactor this based on containers data
+		// set sessions with containers data
 		sessions := make([]models.Session, 0)
 		for _, c := range cts {
 			status := enums.SessionStatusRunning
-			if c.Status != "running" {
+			if c.Exited {
 				if c.ExitCode == 0 {
 					status = enums.SessionStatusFinished
 				} else {
