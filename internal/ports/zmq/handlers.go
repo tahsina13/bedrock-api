@@ -55,7 +55,6 @@ func (z ZMQServer) socketHandler(ctx context.Context, in chan [][]byte, out chan
 			return ctx.Err()
 		case event := <-in:
 			out <- z.processEvent(event)
-		default:
 		}
 	}
 }
