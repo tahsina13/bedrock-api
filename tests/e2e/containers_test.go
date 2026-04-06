@@ -4,6 +4,7 @@
 package e2e
 
 import (
+	"os"
 	"testing"
 
 	"github.com/amirhnajafiz/bedrock-api/internal/components/containers"
@@ -69,9 +70,16 @@ func TestContainers(t *testing.T) {
 	t.Logf("nginx container stopped successfully")
 
 	// store the container logs
-	err = cm.StoreLogs(ctx, containerID, "nginx-logs.txt")
+	err = cm.StoreLogs(ctx, containerID, "/tmp/nginx-logs.txt")
 	if err != nil {
 		t.Fatalf("failed to get container logs: %v", err)
+	}
+
+	// check if the log file is created
+	if _, err := os.Stat("/tmp/nginx-logs.txt"); os.IsNotExist(err) {
+		t.Errorf("log file not found")
+	} else {
+		t.Logf("log file created successfully")
 	}
 
 	// remove the nginx container
