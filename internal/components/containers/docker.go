@@ -68,13 +68,13 @@ func (m *dockerManager) Start(ctx context.Context, cfg *ContainerConfig) (string
 		cfg.Name,
 	)
 	if err != nil {
-		return "", fmt.Errorf("failed to create container: %v", err)
+		return "", fmt.Errorf("failed to create container: %w", err)
 	}
 
 	// start the container
 	if err := m.client.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		_ = m.client.ContainerRemove(ctx, resp.ID, container.RemoveOptions{})
-		return "", fmt.Errorf("failed to start container: %v", err)
+		return "", fmt.Errorf("failed to start container: %w", err)
 	}
 
 	return resp.ID, nil
@@ -88,18 +88,22 @@ func (m *dockerManager) StoreLogs(ctx context.Context, containerID string, fileP
 		ShowStderr: true,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to get container logs: %v", err)
+		return fmt.Errorf("failed to get container logs: %w", err)
 	}
 	defer reader.Close()
 
 	f, err := os.Create(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to create log file: %v", err)
+		return fmt.Errorf("failed to create log file: %w", err)
 	}
 	defer f.Close()
 
 	_, err = stdcopy.StdCopy(f, f, reader)
-	return fmt.Errorf("failed to write logs: %v", err)
+	if err != nil {
+		return fmt.Errorf("failed to write logs: %w", err)
+	}
+
+	return nil
 }
 
 // List returns information about every container that carries the bedrock
@@ -112,7 +116,7 @@ func (m *dockerManager) List(ctx context.Context) ([]*ContainerInfo, error) {
 		),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to list containers: %v", err)
+		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
 
 	infos := make([]*ContainerInfo, 0, len(raw))
@@ -135,7 +139,7 @@ func (m *dockerManager) List(ctx context.Context) ([]*ContainerInfo, error) {
 		// call ContainerInspect to get the exit code if the container has finished
 		inspect, err := m.client.ContainerInspect(ctx, c.ID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to inspect container: %v", err)
+			return nil, fmt.Errorf("failed to inspect container: %w", err)
 		}
 
 		if inspect.State != nil && !inspect.State.Running {
@@ -146,7 +150,7 @@ func (m *dockerManager) List(ctx context.Context) ([]*ContainerInfo, error) {
 		// convert the inspect created time string to a timestamp
 		cinfo.CreatedAt, err = time.Parse(time.RFC3339, inspect.Created)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse created time: %v", err)
+			return nil, fmt.Errorf("failed to parse created time: %w", err)
 		}
 
 		infos = append(infos, cinfo)
@@ -159,7 +163,7 @@ func (m *dockerManager) List(ctx context.Context) ([]*ContainerInfo, error) {
 func (m *dockerManager) Get(ctx context.Context, containerID string) (*ContainerInfo, error) {
 	inspect, err := m.client.ContainerInspect(ctx, containerID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to inspect container: %v", err)
+		return nil, fmt.Errorf("failed to inspect container: %w", err)
 	}
 
 	name := ""
@@ -170,7 +174,7 @@ func (m *dockerManager) Get(ctx context.Context, containerID string) (*Container
 	// convert the inspect created time string to a timestamp
 	createdAt, err := time.Parse(time.RFC3339, inspect.Created)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse created time: %v", err)
+		return nil, fmt.Errorf("failed to parse created time: %w", err)
 	}
 
 	cinfo := &ContainerInfo{
