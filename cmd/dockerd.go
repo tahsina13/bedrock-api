@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/amirhnajafiz/bedrock-api/internal/bdtracer"
 	"github.com/amirhnajafiz/bedrock-api/internal/components/containers"
 	zmqclient "github.com/amirhnajafiz/bedrock-api/internal/components/zmq_client"
 	"github.com/amirhnajafiz/bedrock-api/internal/configs"
@@ -116,7 +117,7 @@ func StartDockerd(ctx context.Context, cfg *configs.DockerdConfig) error {
 			continue
 		}
 
-		// TODO: make changes to reach to API state
+		// make changes to reach to API state
 		for _, session := range respPacket.Sessions {
 			switch session.Status {
 			case enums.SessionStatusStopped:
@@ -138,35 +139,20 @@ func startContainersForSession(cm containers.ContainerManager, session models.Se
 	target := fmt.Sprintf("bedrock-target-%s", session.Id)
 	tracer := fmt.Sprintf("bedrock-tracer-%s", session.Id)
 
-	// create tracing output directory for the session
-	outputDir := fmt.Sprintf("/tmp/bedrock-outputs/%s", session.Id)
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return err
+	// create the output directory for the tracer
+	if err := bdtracer.CreateTracerOutputDir(session.Id); err != nil {
+		return fmt.Errorf("failed to create tracer output directory: %w", err)
 	}
 
 	// start the tracer container
 	if _, err := cm.Start(
 		context.Background(),
 		&containers.ContainerConfig{
-			Name:  tracer,
-			Image: "ghcr.io/amirhnajafiz/bedrock-tracer:v0.0.6-beta",
-			Cmd: []string{
-				"bdtrace",
-				"--container",
-				target,
-				"-o",
-				"/logs",
-			},
-			Flags: map[string]any{
-				"pid":        "host",
-				"privileged": true,
-			},
-			Volumes: map[string]string{
-				"/sys":                               "/sys:rw",
-				"/lib/modules":                       "/lib/modules:ro",
-				"/var/run/docker.sock":               "/var/run/docker.sock",
-				"/tmp/bedrock-outputs/" + session.Id: "/logs",
-			},
+			Name:    tracer,
+			Image:   bdtracer.BdtraceImage,
+			Cmd:     bdtracer.DefaultTracerCommand(target),
+			Flags:   bdtracer.DefaultContainerFlags(),
+			Volumes: bdtracer.DefaultTracerVolumes(session.Id),
 		},
 	); err != nil {
 		return err
