@@ -16,6 +16,7 @@ import (
 func TestContainers(t *testing.T) {
 	// create a context
 	ctx := t.Context()
+	defer ctx.Done()
 
 	// create a container manager
 	cm, err := containers.NewDockerManager()
@@ -62,10 +63,18 @@ func TestContainers(t *testing.T) {
 		t.Fatalf("failed to list containers: %v", err)
 	}
 
+	stopped := false
 	for _, c := range containersList {
 		if c.ID == containerID {
-			t.Errorf("nginx container is still running with ID: %s", containerID)
+			if c.Exited {
+				stopped = true
+				break
+			}
+			t.Errorf("nginx container exists but is still running with ID: %s", containerID)
 		}
+	}
+	if !stopped {
+		t.Errorf("nginx container was not found in stopped state with ID: %s", containerID)
 	}
 	t.Logf("nginx container stopped successfully")
 
