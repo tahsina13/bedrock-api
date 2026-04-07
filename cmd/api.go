@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/amirhnajafiz/bedrock-api/internal/configs"
 	"github.com/amirhnajafiz/bedrock-api/internal/logger"
@@ -40,14 +39,13 @@ func (a API) Command() *cobra.Command {
 
 				// start the Docker Daemon in a separate goroutine
 				erg.Go(func() error {
-					return StartDockerd(ctx, &configs.DockerdConfig{
-						Name:          "hostname",
-						LogLevel:      a.Cfg.LogLevel,
-						APISocketHost: a.Cfg.SocketHost,
-						APISocketPort: a.Cfg.SocketPort,
-						APITimeout:    10 * time.Second,
-						PullInterval:  30 * time.Second,
-					})
+					cfg := configs.DefaultDockerdConfig()
+					cfg.LogLevel = a.Cfg.LogLevel
+					cfg.APISocketHost = a.Cfg.SocketHost
+					cfg.APISocketPort = a.Cfg.SocketPort
+					cfg.BedrockTracerImage = a.Cfg.BedrockTracerImage
+
+					return StartDockerd(ctx, cfg)
 				})
 
 				// wait for both servers to finish

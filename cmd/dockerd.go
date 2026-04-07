@@ -60,7 +60,7 @@ func StartDockerd(ctx context.Context, cfg *configs.DockerdConfig) error {
 		ContainerManager: cm,
 		Logr:             logr.Named("daemon"),
 		PullInterval:     cfg.PullInterval,
-	}.Build(name, cfg.DataDir, cfg.BDTraceImage, fmt.Sprintf("tcp://%s:%d", cfg.APISocketHost, cfg.APISocketPort))
+	}.Build(name, cfg.DataDir, cfg.BedrockTracerImage, fmt.Sprintf("tcp://%s:%d", cfg.APISocketHost, cfg.APISocketPort))
 	if err := daemonInstance.Serve(ctx); err != nil {
 		logr.Error("failed to start daemon", zap.Error(err))
 		return err
