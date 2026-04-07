@@ -4,16 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
-	"time"
 
-	"github.com/amirhnajafiz/bedrock-api/internal/bdtracer"
 	"github.com/amirhnajafiz/bedrock-api/internal/components/containers"
-	zmqclient "github.com/amirhnajafiz/bedrock-api/internal/components/zmq_client"
 	"github.com/amirhnajafiz/bedrock-api/internal/configs"
 	"github.com/amirhnajafiz/bedrock-api/internal/logger"
-	"github.com/amirhnajafiz/bedrock-api/pkg/enums"
-	"github.com/amirhnajafiz/bedrock-api/pkg/models"
+	"github.com/amirhnajafiz/bedrock-api/internal/ports/daemon"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -53,8 +48,7 @@ func StartDockerd(ctx context.Context, cfg *configs.DockerdConfig) error {
 		name = uuid.NewString()
 	}
 
-	// build the ZMQ client
-	zclient := zmqclient.NewZMQClient(fmt.Sprintf("tcp://%s:%d", cfg.APISocketHost, cfg.APISocketPort))
+	apiAddress := fmt.Sprintf("tcp://%s:%d", cfg.APISocketHost, cfg.APISocketPort)
 
 	// create Docker client and container manager
 	cm, err := containers.NewDockerManager()
@@ -63,153 +57,15 @@ func StartDockerd(ctx context.Context, cfg *configs.DockerdConfig) error {
 		return err
 	}
 
-	// create a new tracer
-	tc := bdtracer.BdTracer{
-		BaseDir: cfg.DataDir,
-		Image:   cfg.BDTraceImage,
-	}
-
-	// dockerd main loop
-	for {
-		// check if the context is done before each iteration
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		// interval between each API call
-		time.Sleep(cfg.PullInterval)
-
-		// get the list of containers
-		cts, err := cm.List(context.Background())
-		if err != nil {
-			logr.Warn("failed to monitor containers", zap.Error(err))
-			continue
-		}
-
-		// set sessions with containers data
-		sessions := make([]models.Session, 0)
-		for _, c := range cts {
-			status := enums.SessionStatusRunning
-			if c.Exited {
-				if c.ExitCode == 0 {
-					status = enums.SessionStatusFinished
-				} else {
-					status = enums.SessionStatusFailed
-				}
-			}
-
-			sessions = append(sessions, models.Session{
-				Id:     c.ID,
-				Status: status,
-			})
-		}
-
-		// build a packet with the container sessions
-		packet := models.NewPacket().WithSender(name).WithSessions(sessions...)
-
-		// send the packet to ZMQ server
-		resp, err := zclient.SendWithTimeout(packet.ToBytes(), int(cfg.APITimeout.Seconds()))
-		if err != nil {
-			logr.Warn("failed to call API", zap.Error(err))
-			continue
-		}
-
-		// get the response from ZMQ server
-		respPacket, err := models.PacketFromBytes(resp)
-		if err != nil {
-			logr.Warn("failed to parse packet", zap.Error(err))
-			continue
-		}
-
-		// make changes to reach to API state
-		for _, session := range respPacket.Sessions {
-			switch session.Status {
-			case enums.SessionStatusStopped:
-			case enums.SessionStatusFailed:
-			case enums.SessionStatusFinished:
-				if err := stopContainersForSession(cm, session); err != nil {
-					logr.Warn("failed to stop container", zap.String("id", session.Id), zap.Error(err))
-				}
-			case enums.SessionStatusPending:
-				if err := startContainersForSession(cm, tc, session); err != nil {
-					logr.Warn("failed to start container", zap.String("id", session.Id), zap.Error(err))
-				}
-			}
-		}
-	}
-}
-
-func startContainersForSession(cm containers.ContainerManager, tc bdtracer.BdTracer, session models.Session) error {
-	target := fmt.Sprintf("bedrock-target-%s", session.Id)
-	tracer := fmt.Sprintf("bedrock-tracer-%s", session.Id)
-
-	// create the output directory for the tracer
-	if err := tc.CreateTracerOutputDir(session.Id); err != nil {
-		return fmt.Errorf("failed to create tracer output directory: %w", err)
-	}
-
-	// start the tracer container
-	if _, err := cm.Start(
-		context.Background(),
-		&containers.ContainerConfig{
-			Name:    tracer,
-			Image:   tc.Image,
-			Cmd:     tc.DefaultTracerCommand(target),
-			Flags:   tc.DefaultContainerFlags(),
-			Volumes: tc.DefaultTracerVolumes(session.Id),
-		},
-	); err != nil {
+	// create and build a daemon instance
+	daemonInstance := daemon.Daemon{
+		ContainerManager: cm,
+		Logr:             logr.Named("daemon"),
+		PullInterval:     cfg.PullInterval,
+	}.Build(name, cfg.DataDir, cfg.BDTraceImage, apiAddress)
+	if err := daemonInstance.Serve(ctx); err != nil {
+		logr.Error("failed to start daemon", zap.Error(err))
 		return err
-	}
-
-	// start the target container
-	if _, err := cm.Start(
-		context.Background(),
-		&containers.ContainerConfig{
-			Name:  target,
-			Image: session.Spec.Image,
-			Cmd:   strings.Split(session.Spec.Command, " "),
-		},
-	); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func stopContainersForSession(cm containers.ContainerManager, session models.Session) error {
-	// create a new background context for stopping containers
-	ctx := context.Background()
-
-	target := fmt.Sprintf("bedrock-target-%s", session.Id)
-	tracer := fmt.Sprintf("bedrock-tracer-%s", session.Id)
-
-	// check if the target container is running before trying to stop it
-	targetInfo, err := cm.Get(ctx, target)
-	if err != nil {
-		return fmt.Errorf("failed to get container info for %s: %w", target, err)
-	}
-
-	if !targetInfo.Exited {
-		// stop the target container
-		if err := cm.Stop(ctx, target); err != nil {
-			return fmt.Errorf("failed to stop container %s: %w", target, err)
-		}
-
-		// stop the tracer container
-		if err := cm.Stop(ctx, tracer); err != nil {
-			return fmt.Errorf("failed to stop container %s: %w", tracer, err)
-		}
-	}
-
-	// remove both containers after stopping
-	if err := cm.Remove(ctx, target); err != nil {
-		return fmt.Errorf("failed to remove container %s: %w", target, err)
-	}
-	if err := cm.Remove(ctx, tracer); err != nil {
-		return fmt.Errorf("failed to remove container %s: %w", tracer, err)
 	}
 
 	return nil
