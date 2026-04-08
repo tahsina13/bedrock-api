@@ -32,6 +32,7 @@ type DockerdConfig struct {
 	APISocketPort int           `koanf:"api_socket_port" validate:"min=1,max=65535"`
 	APITimeout    time.Duration `koanf:"api_timeout"`
 	PullInterval  time.Duration `koanf:"pull_interval"`
+	TracerTag     string        `koanf:"tracer_tag"`
 }
 
 // FileMDConfig represents the configuration for the File Management Daemon.

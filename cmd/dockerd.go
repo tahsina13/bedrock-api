@@ -126,7 +126,13 @@ func StartDockerd(ctx context.Context, cfg *configs.DockerdConfig) error {
 					logr.Warn("failed to stop container", zap.String("id", session.Id), zap.Error(err))
 				}
 			case enums.SessionStatusPending:
-				if err := startContainersForSession(cm, session); err != nil {
+				// determine tracer image tag (default to latest)
+				tracerTag := "latest"
+				if cfg != nil && len(strings.TrimSpace(cfg.TracerTag)) > 0 {
+					tracerTag = cfg.TracerTag
+				}
+
+				if err := startContainersForSession(cm, session, tracerTag); err != nil {
 					logr.Warn("failed to start container", zap.String("id", session.Id), zap.Error(err))
 				}
 			}
@@ -134,7 +140,7 @@ func StartDockerd(ctx context.Context, cfg *configs.DockerdConfig) error {
 	}
 }
 
-func startContainersForSession(cm containers.ContainerManager, session models.Session) error {
+func startContainersForSession(cm containers.ContainerManager, session models.Session, tracerTag string) error {
 	target := fmt.Sprintf("bedrock-target-%s", session.Id)
 	tracer := fmt.Sprintf("bedrock-tracer-%s", session.Id)
 
@@ -144,12 +150,17 @@ func startContainersForSession(cm containers.ContainerManager, session models.Se
 		return err
 	}
 
+	// ensure tracerTag defaults to latest when empty or whitespace
+	if len(strings.TrimSpace(tracerTag)) == 0 {
+		tracerTag = "latest"
+	}
+
 	// start the tracer container
 	if _, err := cm.Create(
 		context.Background(),
 		containers.ContainerConfig{
 			Name:  tracer,
-			Image: "ghcr.io/amirhnajafiz/bedrock-tracer:v0.0.6-beta",
+			Image: fmt.Sprintf("ghcr.io/amirhnajafiz/bedrock-tracer:%s", tracerTag),
 			Cmd: []string{
 				"bdtrace",
 				"--container",

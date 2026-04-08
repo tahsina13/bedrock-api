@@ -22,6 +22,7 @@ func Default() *Config {
 			APISocketPort: 8081,
 			APITimeout:    10 * time.Second,
 			PullInterval:  30 * time.Second,
+			TracerTag: "latest",
 		},
 		FileMD: &FileMDConfig{
 			LogLevel:    "info",
