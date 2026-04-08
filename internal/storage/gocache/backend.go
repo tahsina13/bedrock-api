@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 
@@ -63,18 +64,33 @@ func (b *Backend) Delete(key string) error {
 	return b.cache.Delete(context.Background(), key)
 }
 
-// List returns the values of all entries whose keys start with prefix.
-// An empty prefix returns every value currently in the store.
+// List returns the values of all entries whose keys match wildcard.
+// If wildcard contains no glob tokens, it is treated as a key prefix.
+// If wildcard contains glob tokens ('*', '?', '['), path.Match is used.
+// An empty wildcard returns every value currently in the store.
 // The returned slice is a snapshot; mutations to it do not affect the cache.
 // eko/gocache does not expose a scan API, so this method accesses the
 // underlying go-cache client directly via Items().
-func (b *Backend) List(prefix string) ([][]byte, error) {
+func (b *Backend) List(wildcard string) ([][]byte, error) {
 	items := b.client.Items()
 	var result [][]byte
+	hasGlob := strings.ContainsAny(wildcard, "*?[")
+	if hasGlob {
+		if _, err := path.Match(wildcard, ""); err != nil {
+			return nil, fmt.Errorf("gocache: invalid wildcard %q: %w", wildcard, err)
+		}
+	}
 
 	for k, item := range items {
-		if !strings.HasPrefix(k, prefix) {
-			continue
+		if wildcard != "" {
+			if hasGlob {
+				matched, _ := path.Match(wildcard, k)
+				if !matched {
+					continue
+				}
+			} else if !strings.HasPrefix(k, wildcard) {
+				continue
+			}
 		}
 
 		data, ok := item.Object.([]byte)

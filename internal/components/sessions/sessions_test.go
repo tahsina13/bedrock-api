@@ -76,6 +76,33 @@ func TestSessionStore_Get_WrongDockerdId(t *testing.T) {
 	}
 }
 
+// The following test covers id-only retrieval across daemon namespaces.
+func TestSessionStore_GetById(t *testing.T) {
+	s := newTestSessionStore()
+
+	_ = s.SaveSession(&models.Session{Id: "s1", DockerDId: "d1", Spec: models.Spec{Image: "a"}})
+	_ = s.SaveSession(&models.Session{Id: "s2", DockerDId: "d2", Spec: models.Spec{Image: "b"}})
+
+	got, err := s.GetSessionById("s2")
+	if err != nil {
+		t.Fatalf("GetSessionById: %v", err)
+	}
+
+	if got.Id != "s2" || got.DockerDId != "d2" {
+		t.Errorf("GetSessionById: got (%s,%s), want (s2,d2)", got.Id, got.DockerDId)
+	}
+}
+
+// The following test covers id-only retrieval for unknown ids.
+func TestSessionStore_GetById_NotFound(t *testing.T) {
+	s := newTestSessionStore()
+
+	_, err := s.GetSessionById("missing")
+	if !errors.Is(err, xerrors.StorageErrNotFound) {
+		t.Errorf("GetSessionById missing: got %v, want xerrors.StorageErrNotFound", err)
+	}
+}
+
 // The following test covers the overwrite behavior of SaveSession,
 // ensuring that saving a session with the same id and dockerdId updates the existing entry rather than creating a duplicate.
 func TestSessionStore_Save_Overwrite(t *testing.T) {

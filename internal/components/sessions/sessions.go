@@ -16,6 +16,10 @@ type SessionStore interface {
 	// Returns ErrNotFound when absent.
 	GetSession(id, dockerdId string) (*models.Session, error)
 
+	// GetSessionById retrieves a session by id regardless of dockerd namespace.
+	// Returns ErrNotFound when absent.
+	GetSessionById(id string) (*models.Session, error)
+
 	// ListSessions returns the raw bytes of every stored session across all daemons.
 	ListSessions() ([]*models.Session, error)
 
