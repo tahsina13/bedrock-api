@@ -243,7 +243,11 @@ Example curl (create session):
 ```sh
 curl -X POST http://localhost:8080/api/sessions \
   -H "Content-Type: application/json" \
-  -d '{"image":"nginx:stable","command":"nginx -g \'daemon off;\'","ttl":60}'
+  -d "{
+    \"image\": \"nginx:latest\",
+    \"command\": \"nginx -g 'daemon off;'\",
+    \"ttl\": \"24h\"
+  }"
 ```
 
 ### Stop Session
@@ -302,7 +306,7 @@ Response (application/json): array of Session objects. Each Session has the shap
   "spec": {
     "image": "<docker-image>",
     "command": "<command-string>",
-    "ttl": <seconds>
+    "ttl": "<duration>"
   }
 }
 ```
