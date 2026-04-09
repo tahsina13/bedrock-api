@@ -22,17 +22,20 @@ type APIConfig struct {
 	SocketHandlers             int           `koanf:"socket_handlers" validate:"min=1"`
 	FullStackMode              bool          `koanf:"full_stack_mode"`
 	DockerDHealthCheckInterval time.Duration `koanf:"dockerd_health_check_interval"`
+	SessionStatusCheckInterval time.Duration `koanf:"session_status_check_interval"`
+	BedrockTracerImage         string        `koanf:"bedrock_tracer_image"`
 }
 
 // DockerdConfig represents the configuration for the Docker Daemon.
 type DockerdConfig struct {
-	Name          string        `koanf:"name"`
-	LogLevel      string        `koanf:"log_level" validate:"oneof=debug info warn error"`
-	APISocketHost string        `koanf:"api_socket_host" validate:"ip"`
-	APISocketPort int           `koanf:"api_socket_port" validate:"min=1,max=65535"`
-	APITimeout    time.Duration `koanf:"api_timeout"`
-	PullInterval  time.Duration `koanf:"pull_interval"`
-	TracerTag     string        `koanf:"tracer_tag"`
+	Name               string        `koanf:"name"`
+	LogLevel           string        `koanf:"log_level" validate:"oneof=debug info warn error"`
+	APISocketHost      string        `koanf:"api_socket_host" validate:"ip"`
+	APISocketPort      int           `koanf:"api_socket_port" validate:"min=1,max=65535"`
+	APITimeout         time.Duration `koanf:"api_timeout"`
+	PullInterval       time.Duration `koanf:"pull_interval"`
+	BedrockTracerImage string        `koanf:"bedrock_tracer_image"`
+	DataDir            string        `koanf:"data_dir"`
 }
 
 // FileMDConfig represents the configuration for the File Management Daemon.
@@ -40,6 +43,7 @@ type FileMDConfig struct {
 	LogLevel    string `koanf:"log_level" validate:"oneof=debug info warn error"`
 	APIHTTPHost string `koanf:"api_http_host" validate:"ip"`
 	APIHTTPPort int    `koanf:"api_http_port" validate:"min=1,max=65535"`
+	DataDir     string `koanf:"data_dir"`
 }
 
 // Config represents the configuration for the application.

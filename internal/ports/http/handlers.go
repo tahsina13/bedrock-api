@@ -45,7 +45,7 @@ func (h HTTPServer) createSession(c *echo.Context) error {
 		Status:    enums.SessionStatusPending,
 		Spec:      spec,
 	}
-	h.sessionStore.SaveSession(session.Id, session.DockerDId, &session)
+	h.sessionStore.SaveSession(&session)
 
 	return c.JSON(http.StatusCreated, session)
 }
@@ -79,7 +79,7 @@ func (h HTTPServer) updateSession(c *echo.Context) error {
 
 	session.Status = newState
 
-	if err := h.sessionStore.SaveSession(session.Id, session.DockerDId, session); err != nil {
+	if err := h.sessionStore.SaveSession(session); err != nil {
 		h.Logr.Warn("failed to save session", zap.Error(err), zap.String("session id", id), zap.String("dockerd id", session.DockerDId))
 		return c.String(http.StatusInternalServerError, "failed to save session")
 	}

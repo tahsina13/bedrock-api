@@ -1,24 +1,6 @@
 package containers
 
-import (
-	"context"
-	"io"
-
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/network"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-)
-
-// ContainerClient abstracts the Docker Engine SDK methods used by the manager.
-type ContainerClient interface {
-	ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *ocispec.Platform, containerName string) (container.CreateResponse, error)
-	ContainerStart(ctx context.Context, containerID string, options container.StartOptions) error
-	ContainerStop(ctx context.Context, containerID string, options container.StopOptions) error
-	ContainerRemove(ctx context.Context, containerID string, options container.RemoveOptions) error
-	ContainerList(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
-	ContainerLogs(ctx context.Context, container string, options container.LogsOptions) (io.ReadCloser, error)
-	ContainerInspect(ctx context.Context, containerID string) (containerJSON container.InspectResponse, err error)
-}
+import "time"
 
 // ContainerConfig holds the parameters needed to create a container.
 type ContainerConfig struct {
@@ -38,10 +20,20 @@ type ContainerConfig struct {
 
 // ContainerInfo describes a container's current state.
 type ContainerInfo struct {
-	// Summary of container
-	Summary container.Summary
+	// Unique identifier of the container.
+	ID string
+	// Human-readable name of the container.
+	Name string
+	// Image the container was created from, e.g. "ubuntu:latest".
+	Image string
+	// Command the container was started with, e.g. "/bin/sh -c 'echo hello'".
+	Command string
+	// Current status of the container, e.g. "running", "exited".
+	Status string
 	// Exited indicates whether the container has finished execution.
 	Exited bool
 	// Exit code if the container has finished.
 	ExitCode int
+	// Creation timestamp of the container.
+	CreatedAt time.Time
 }

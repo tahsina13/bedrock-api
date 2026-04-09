@@ -4,24 +4,15 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
-	"time"
 
 	"github.com/amirhnajafiz/bedrock-api/internal/components/containers"
-	zmqclient "github.com/amirhnajafiz/bedrock-api/internal/components/zmq_client"
 	"github.com/amirhnajafiz/bedrock-api/internal/configs"
 	"github.com/amirhnajafiz/bedrock-api/internal/logger"
-	"github.com/amirhnajafiz/bedrock-api/pkg/enums"
-	"github.com/amirhnajafiz/bedrock-api/pkg/models"
+	"github.com/amirhnajafiz/bedrock-api/internal/ports/daemon"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
-)
-
-const (
-	targetPrefix = "bedrock-target-"
-	tracerPrefix = "bedrock-tracer-"
 )
 
 // Dockerd represents the Docker Daemon command.
@@ -48,17 +39,14 @@ func StartDockerd(ctx context.Context, cfg *configs.DockerdConfig) error {
 	// create a new logger instance
 	logr := logger.New(cfg.LogLevel)
 
-	// setting the dockerd dockerd
-	dockerd := cfg.Name
-	if dockerd == "hostname" {
-		dockerd, _ = os.Hostname()
+	// setting the name name
+	name := cfg.Name
+	if name == "hostname" {
+		name, _ = os.Hostname()
 	}
-	if len(dockerd) == 0 {
-		dockerd = uuid.NewString()
+	if len(name) == 0 {
+		name = uuid.NewString()
 	}
-
-	// build the ZMQ client
-	zclient := zmqclient.NewZMQClient(fmt.Sprintf("tcp://%s:%d", cfg.APISocketHost, cfg.APISocketPort))
 
 	// create Docker client and container manager
 	cm, err := containers.NewDockerManager()
@@ -67,162 +55,14 @@ func StartDockerd(ctx context.Context, cfg *configs.DockerdConfig) error {
 		return err
 	}
 
-	// dockerd main loop
-	for {
-		// check if the context is done before each iteration
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		// interval between each API call
-		time.Sleep(cfg.PullInterval)
-
-		// get the list of containers
-		cts, err := cm.List(context.Background())
-		if err != nil {
-			logr.Warn("failed to monitor containers", zap.Error(err))
-			continue
-		}
-
-		// set sessions with containers data
-		sessions := make([]models.Session, 0)
-		for _, c := range cts {
-			name := strings.TrimPrefix(c.Summary.Names[0], "/")
-			id, ok := strings.CutPrefix(name, targetPrefix)
-			if !ok {
-				continue
-			}
-
-			status := enums.SessionStatusRunning
-			if c.Exited {
-				if c.ExitCode == 0 {
-					status = enums.SessionStatusFinished
-				} else {
-					status = enums.SessionStatusFailed
-				}
-			}
-
-			sessions = append(sessions, models.Session{
-				Id:        id,
-				DockerDId: dockerd,
-				Status:    status,
-				CreatedAt: time.Unix(c.Summary.Created, 0),
-				Spec: models.Spec{
-					Image:   c.Summary.Image,
-					Command: c.Summary.Command,
-				},
-			})
-		}
-
-		// build a packet with the container sessions
-		packet := models.NewPacket().WithSender(dockerd).WithSessions(sessions...)
-
-		// send the packet to ZMQ server
-		resp, err := zclient.SendWithTimeout(packet.ToBytes(), int(cfg.APITimeout.Seconds()))
-		if err != nil {
-			logr.Warn("failed to call API", zap.Error(err))
-			continue
-		}
-
-		// get the response from ZMQ server
-		respPacket, err := models.PacketFromBytes(resp)
-		if err != nil {
-			logr.Warn("failed to parse packet", zap.Error(err))
-			continue
-		}
-
-		for _, session := range respPacket.Sessions {
-			switch session.Status {
-			case enums.SessionStatusStopped:
-			case enums.SessionStatusFailed:
-			case enums.SessionStatusFinished:
-				if err := stopContainersForSession(cm, session); err != nil {
-					logr.Warn("failed to stop container", zap.String("id", session.Id), zap.Error(err))
-				}
-			case enums.SessionStatusPending:
-				tracerTag := "latest"
-				if cfg != nil && len(strings.TrimSpace(cfg.TracerTag)) > 0 {
-					tracerTag = cfg.TracerTag
-				}
-				if err := startContainersForSession(cm, session, tracerTag); err != nil {
-					logr.Warn("failed to start container", zap.String("id", session.Id), zap.Error(err))
-				}
-			}
-		}
-	}
-}
-
-func startContainersForSession(cm containers.ContainerManager, session models.Session, tracerTag string) error {
-	target := fmt.Sprintf("%s%s", targetPrefix, session.Id)
-	tracer := fmt.Sprintf("%s%s", tracerPrefix, session.Id)
-
-	// create tracing output directory for the session
-	outputDir := fmt.Sprintf("/tmp/bedrock-outputs/%s", session.Id)
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return err
-	}
-
-	// ensure tracerTag defaults to latest when empty or whitespace
-	if len(strings.TrimSpace(tracerTag)) == 0 {
-		tracerTag = "latest"
-	}
-
-	// start the tracer container
-	if _, err := cm.Create(
-		context.Background(),
-		containers.ContainerConfig{
-			Name:  tracer,
-			Image: fmt.Sprintf("ghcr.io/amirhnajafiz/bedrock-tracer:%s", tracerTag),
-			Cmd: []string{
-				"bdtrace",
-				"--container",
-				target,
-				"-o",
-				"/logs",
-			},
-			Flags: map[string]any{
-				"pid":        "host",
-				"privileged": true,
-			},
-			Volumes: map[string]string{
-				"/sys":                               "/sys:rw",
-				"/lib/modules":                       "/lib/modules:ro",
-				"/var/run/docker.sock":               "/var/run/docker.sock",
-				"/tmp/bedrock-outputs/" + session.Id: "/logs",
-			},
-		},
-	); err != nil {
-		return err
-	}
-
-	// start the target container
-	if _, err := cm.Create(
-		context.Background(),
-		containers.ContainerConfig{
-			Name:  target,
-			Image: session.Spec.Image,
-			Cmd:   strings.Split(session.Spec.Command, " "),
-		},
-	); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func stopContainersForSession(cm containers.ContainerManager, session models.Session) error {
-	target := fmt.Sprintf("%s%s", targetPrefix, session.Id)
-	tracer := fmt.Sprintf("%s%s", tracerPrefix, session.Id)
-
-	// stop the target container
-	if err := cm.Stop(context.Background(), target); err != nil {
-		return err
-	}
-
-	// stop the tracer container
-	if err := cm.Stop(context.Background(), tracer); err != nil {
+	// create and build a daemon instance
+	daemonInstance := daemon.Daemon{
+		ContainerManager: cm,
+		Logr:             logr.Named("daemon"),
+		PullInterval:     cfg.PullInterval,
+	}.Build(name, cfg.DataDir, cfg.BedrockTracerImage, fmt.Sprintf("tcp://%s:%d", cfg.APISocketHost, cfg.APISocketPort))
+	if err := daemonInstance.Serve(ctx); err != nil {
+		logr.Error("failed to start daemon", zap.Error(err))
 		return err
 	}
 

@@ -134,3 +134,36 @@ func TestBackend_List_NoMatch(t *testing.T) {
 		t.Errorf("List no-match: got %d entries, want 0", len(result))
 	}
 }
+
+func TestBackend_List_WithWildcard(t *testing.T) {
+	b := newTestBackend()
+
+	_ = b.Set("sessions/d1/s1", []byte("d1s1"))
+	_ = b.Set("sessions/d2/s1", []byte("d2s1"))
+	_ = b.Set("sessions/d2/s2", []byte("d2s2"))
+
+	result, err := b.List("sessions/*/s1")
+	if err != nil {
+		t.Fatalf("List wildcard: unexpected error: %v", err)
+	}
+
+	if len(result) != 2 {
+		t.Errorf("List sessions/*/s1: got %d entries, want 2", len(result))
+	}
+
+	want := map[string]bool{"d1s1": true, "d2s1": true}
+	for _, v := range result {
+		if !want[string(v)] {
+			t.Errorf("List wildcard returned unexpected value %q", v)
+		}
+	}
+}
+
+func TestBackend_List_InvalidWildcard(t *testing.T) {
+	b := newTestBackend()
+
+	_, err := b.List("sessions/[*/s1")
+	if err == nil {
+		t.Errorf("List invalid wildcard: expected error, got nil")
+	}
+}

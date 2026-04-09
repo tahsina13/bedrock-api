@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/amirhnajafiz/bedrock-api/internal/configs"
 	"github.com/amirhnajafiz/bedrock-api/internal/logger"
@@ -40,14 +39,13 @@ func (a API) Command() *cobra.Command {
 
 				// start the Docker Daemon in a separate goroutine
 				erg.Go(func() error {
-					return StartDockerd(ctx, &configs.DockerdConfig{
-						Name:          "hostname",
-						LogLevel:      a.Cfg.LogLevel,
-						APISocketHost: a.Cfg.SocketHost,
-						APISocketPort: a.Cfg.SocketPort,
-						APITimeout:    10 * time.Second,
-						PullInterval:  30 * time.Second,
-					})
+					cfg := configs.DefaultDockerdConfig()
+					cfg.LogLevel = a.Cfg.LogLevel
+					cfg.APISocketHost = a.Cfg.SocketHost
+					cfg.APISocketPort = a.Cfg.SocketPort
+					cfg.BedrockTracerImage = a.Cfg.BedrockTracerImage
+
+					return StartDockerd(ctx, cfg)
 				})
 
 				// wait for both servers to finish
@@ -73,7 +71,11 @@ func StartAPI(ctx context.Context, cfg *configs.APIConfig) error {
 	// start the workers
 	dockerdHealthChannel := make(chan string)
 	erg.Go(func() error {
-		workers.WorkerDockerDHealthCheck(ctx, dockerdHealthChannel, cfg.DockerDHealthCheckInterval)
+		workers.WorkerDockerDHealthCheck(ctx, dockerdHealthChannel, logr.Named("dockerd-health"), cfg.DockerDHealthCheckInterval)
+		return nil
+	})
+	erg.Go(func() error {
+		workers.WorkerCheckExpiredSessions(ctx, logr.Named("session-worker"), cfg.SessionStatusCheckInterval)
 		return nil
 	})
 
@@ -85,9 +87,10 @@ func StartAPI(ctx context.Context, cfg *configs.APIConfig) error {
 	}.Build(
 		zmqAddress,
 		cfg.SocketHandlers,
-		ctx,
 	)
-	erg.Go(zmqServer.Serve)
+	erg.Go(func() error {
+		return zmqServer.Serve(ctx)
+	})
 
 	// build and start the HTTP server in a separate goroutine
 	httpServer := http.HTTPServer{
@@ -97,7 +100,9 @@ func StartAPI(ctx context.Context, cfg *configs.APIConfig) error {
 		ctx,
 		zmqAddress,
 	)
-	erg.Go(httpServer.Serve)
+	erg.Go(func() error {
+		return httpServer.Serve()
+	})
 
 	// wait for all servers to finish
 	if err := erg.Wait(); err != nil {

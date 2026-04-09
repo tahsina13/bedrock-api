@@ -5,14 +5,14 @@ import (
 
 	"github.com/amirhnajafiz/bedrock-api/internal/storage"
 	"github.com/amirhnajafiz/bedrock-api/pkg/models"
-	"github.com/amirhnajafiz/bedrock-api/pkg/xerrors"
 )
 
 // sessionPrefix namespaces all session keys inside the shared KVStorage backend.
 // Keys follow the pattern: sessions/<dockerdId>/<sessionId>
 // This allows O(1) prefix scans to retrieve all sessions for a given daemon.
 const (
-	sessionPrefix = "sessions/"
+	sessionPrefix         = "sessions/"
+	sessionIdDockerDIndex = "sessionIdDockerDIndex/"
 )
 
 // sessionStore wraps any storage.KVStorage backend and exposes session-specific
@@ -27,14 +27,24 @@ func sessionKey(dockerdId, id string) string {
 	return sessionPrefix + dockerdId + "/" + id
 }
 
+// sessionIdDockerDIndexKey builds the key for the sessionId to dockerdId index entry.
+func sessionIdDockerDIndexKey(id string) string {
+	return sessionIdDockerDIndex + id
+}
+
 // SaveSession persists raw session bytes under id, namespaced by dockerdId.
-func (s *sessionStore) SaveSession(id, dockerdId string, data *models.Session) error {
+func (s *sessionStore) SaveSession(data *models.Session) error {
+	// save the session index
+	if err := s.backend.Set(sessionIdDockerDIndexKey(data.Id), []byte(data.DockerDId)); err != nil {
+		return err
+	}
+
 	bytes, err := json.Marshal(data)
 	if err != nil {
 		return err
 	}
 
-	return s.backend.Set(sessionKey(dockerdId, id), bytes)
+	return s.backend.Set(sessionKey(data.DockerDId, data.Id), bytes)
 }
 
 // GetSession retrieves the raw bytes for id within the given dockerdId namespace.
@@ -53,27 +63,17 @@ func (s *sessionStore) GetSession(id, dockerdId string) (*models.Session, error)
 	return session, nil
 }
 
-// GetSessionById searches all namespaces for the given session id and returns
-// the first match. This performs a prefix scan of all sessions and checks the
-// session id field.
+// GetSessionById retrieves the session by scanning all daemon namespaces.
 func (s *sessionStore) GetSessionById(id string) (*models.Session, error) {
-	// list all sessions and find by id
-	bytes, err := s.backend.List(sessionPrefix)
+	// look up for the dockerdId namespace in the sessionId index
+	dockerdIdBytes, err := s.backend.Get(sessionIdDockerDIndexKey(id))
 	if err != nil {
 		return nil, err
 	}
+	dockerdId := string(dockerdIdBytes)
 
-	for _, b := range bytes {
-		var session *models.Session
-		if err := json.Unmarshal(b, &session); err != nil {
-			return nil, err
-		}
-		if session != nil && session.Id == id {
-			return session, nil
-		}
-	}
-
-	return nil, xerrors.StorageErrNotFound
+	// retrieve the session using the dockerdId namespace
+	return s.GetSession(id, dockerdId)
 }
 
 // ListSessions returns the raw bytes of every stored session across all daemons.
@@ -118,5 +118,10 @@ func (s *sessionStore) ListSessionsByDockerDId(dockerdId string) ([]*models.Sess
 // DeleteSession removes the session for id within the given dockerdId namespace.
 // It is a no-op when the entry is unknown.
 func (s *sessionStore) DeleteSession(id, dockerdId string) error {
+	// delete the session index
+	if err := s.backend.Delete(sessionIdDockerDIndexKey(id)); err != nil {
+		return err
+	}
+
 	return s.backend.Delete(sessionKey(dockerdId, id))
 }

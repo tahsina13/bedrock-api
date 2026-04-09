@@ -20,7 +20,8 @@ type KVStorage interface {
 	Get(key string) ([]byte, error)
 	// Delete removes the entry for key. It is a no-op when the key does not exist.
 	Delete(key string) error
-	// List retrieves the values for a matching wildcard with the key.
+	// List retrieves the values for keys matching wildcard.
+	// When wildcard has no glob tokens, implementations may treat it as a prefix.
 	List(wildcard string) ([][]byte, error)
 }
 

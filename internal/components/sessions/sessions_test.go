@@ -26,7 +26,7 @@ func TestSessionStore_SaveAndGet(t *testing.T) {
 	}
 
 	for _, sess := range sessions {
-		if err := s.SaveSession(sess.Id, sess.DockerDId, &sess); err != nil {
+		if err := s.SaveSession(&sess); err != nil {
 			t.Fatalf("SaveSession: %v", err)
 		}
 
@@ -52,7 +52,7 @@ func TestSessionStore_Get_NotFound(t *testing.T) {
 	}
 
 	for _, sess := range sessions {
-		if err := s.SaveSession(sess.Id, sess.DockerDId, &sess); err != nil {
+		if err := s.SaveSession(&sess); err != nil {
 			t.Fatalf("SaveSession: %v", err)
 		}
 	}
@@ -68,11 +68,38 @@ func TestSessionStore_Get_NotFound(t *testing.T) {
 func TestSessionStore_Get_WrongDockerdId(t *testing.T) {
 	s := newTestSessionStore()
 
-	_ = s.SaveSession("s1", "d1", &models.Session{Id: "s1", DockerDId: "d1", Spec: models.Spec{Image: "a"}})
+	_ = s.SaveSession(&models.Session{Id: "s1", DockerDId: "d1", Spec: models.Spec{Image: "a"}})
 
 	_, err := s.GetSession("s1", "d2")
 	if !errors.Is(err, xerrors.StorageErrNotFound) {
 		t.Errorf("GetSession wrong dockerdId: got %v, want xerrors.StorageErrNotFound", err)
+	}
+}
+
+// The following test covers id-only retrieval across daemon namespaces.
+func TestSessionStore_GetById(t *testing.T) {
+	s := newTestSessionStore()
+
+	_ = s.SaveSession(&models.Session{Id: "s1", DockerDId: "d1", Spec: models.Spec{Image: "a"}})
+	_ = s.SaveSession(&models.Session{Id: "s2", DockerDId: "d2", Spec: models.Spec{Image: "b"}})
+
+	got, err := s.GetSessionById("s2")
+	if err != nil {
+		t.Fatalf("GetSessionById: %v", err)
+	}
+
+	if got.Id != "s2" || got.DockerDId != "d2" {
+		t.Errorf("GetSessionById: got (%s,%s), want (s2,d2)", got.Id, got.DockerDId)
+	}
+}
+
+// The following test covers id-only retrieval for unknown ids.
+func TestSessionStore_GetById_NotFound(t *testing.T) {
+	s := newTestSessionStore()
+
+	_, err := s.GetSessionById("missing")
+	if !errors.Is(err, xerrors.StorageErrNotFound) {
+		t.Errorf("GetSessionById missing: got %v, want xerrors.StorageErrNotFound", err)
 	}
 }
 
@@ -81,8 +108,8 @@ func TestSessionStore_Get_WrongDockerdId(t *testing.T) {
 func TestSessionStore_Save_Overwrite(t *testing.T) {
 	s := newTestSessionStore()
 
-	_ = s.SaveSession("s1", "d1", &models.Session{Id: "s1", DockerDId: "d1", Spec: models.Spec{Image: "a"}})
-	_ = s.SaveSession("s1", "d1", &models.Session{Id: "s1", DockerDId: "d1", Spec: models.Spec{Image: "b"}})
+	_ = s.SaveSession(&models.Session{Id: "s1", DockerDId: "d1", Spec: models.Spec{Image: "a"}})
+	_ = s.SaveSession(&models.Session{Id: "s1", DockerDId: "d1", Spec: models.Spec{Image: "b"}})
 
 	got, err := s.GetSession("s1", "d1")
 	if err != nil {
@@ -99,7 +126,7 @@ func TestSessionStore_Save_Overwrite(t *testing.T) {
 func TestSessionStore_Delete(t *testing.T) {
 	s := newTestSessionStore()
 
-	_ = s.SaveSession("s1", "d1", &models.Session{Id: "s1", DockerDId: "d1", Spec: models.Spec{Image: "a"}})
+	_ = s.SaveSession(&models.Session{Id: "s1", DockerDId: "d1", Spec: models.Spec{Image: "a"}})
 
 	if err := s.DeleteSession("s1", "d1"); err != nil {
 		t.Fatalf("DeleteSession: %v", err)
@@ -125,9 +152,9 @@ func TestSessionStore_Delete_NoOp(t *testing.T) {
 func TestSessionStore_ListSessions(t *testing.T) {
 	s := newTestSessionStore()
 
-	_ = s.SaveSession("s1", "d1", &models.Session{Id: "s1", DockerDId: "d1", Spec: models.Spec{Image: "a"}})
-	_ = s.SaveSession("s2", "d1", &models.Session{Id: "s2", DockerDId: "d1", Spec: models.Spec{Image: "b"}})
-	_ = s.SaveSession("s3", "d2", &models.Session{Id: "s3", DockerDId: "d2", Spec: models.Spec{Image: "c"}})
+	_ = s.SaveSession(&models.Session{Id: "s1", DockerDId: "d1", Spec: models.Spec{Image: "a"}})
+	_ = s.SaveSession(&models.Session{Id: "s2", DockerDId: "d1", Spec: models.Spec{Image: "b"}})
+	_ = s.SaveSession(&models.Session{Id: "s3", DockerDId: "d2", Spec: models.Spec{Image: "c"}})
 
 	all, err := s.ListSessions()
 	if err != nil {
@@ -165,9 +192,9 @@ func TestSessionStore_ListSessions_Empty(t *testing.T) {
 func TestSessionStore_ListSessionsByDockerDId(t *testing.T) {
 	s := newTestSessionStore()
 
-	_ = s.SaveSession("s1", "d1", &models.Session{Id: "s1", DockerDId: "d1", Spec: models.Spec{Image: "a"}})
-	_ = s.SaveSession("s2", "d1", &models.Session{Id: "s2", DockerDId: "d1", Spec: models.Spec{Image: "b"}})
-	_ = s.SaveSession("s3", "d2", &models.Session{Id: "s3", DockerDId: "d2", Spec: models.Spec{Image: "c"}})
+	_ = s.SaveSession(&models.Session{Id: "s1", DockerDId: "d1", Spec: models.Spec{Image: "a"}})
+	_ = s.SaveSession(&models.Session{Id: "s2", DockerDId: "d1", Spec: models.Spec{Image: "b"}})
+	_ = s.SaveSession(&models.Session{Id: "s3", DockerDId: "d2", Spec: models.Spec{Image: "c"}})
 
 	d1Sessions, err := s.ListSessionsByDockerDId("d1")
 	if err != nil {
@@ -191,7 +218,7 @@ func TestSessionStore_ListSessionsByDockerDId(t *testing.T) {
 func TestSessionStore_ListSessionsByDockerDId_Empty(t *testing.T) {
 	s := newTestSessionStore()
 
-	_ = s.SaveSession("s1", "d1", &models.Session{Id: "s1", DockerDId: "d1", Spec: models.Spec{Image: "a"}})
+	_ = s.SaveSession(&models.Session{Id: "s1", DockerDId: "d1", Spec: models.Spec{Image: "a"}})
 
 	d2Sessions, err := s.ListSessionsByDockerDId("d2")
 	if err != nil {
@@ -200,5 +227,28 @@ func TestSessionStore_ListSessionsByDockerDId_Empty(t *testing.T) {
 
 	if len(d2Sessions) != 0 {
 		t.Errorf("ListSessionsByDockerDId unknown daemon: got %d entries, want 0", len(d2Sessions))
+	}
+}
+
+// The following test covers the id-only retrieval functionality of GetSessionById across daemon namespaces,
+// ensuring that a session can be retrieved by id without specifying the dockerdId and that the correct session
+// is returned when multiple sessions with the same id exist under different dockerdIds.
+func TestSessionStore_GetSessionById(t *testing.T) {
+	s := newTestSessionStore()
+
+	_ = s.SaveSession(&models.Session{Id: "s1", DockerDId: "d1", Spec: models.Spec{Image: "a"}})
+
+	session, err := s.GetSessionById("s1")
+	if err != nil {
+		t.Fatalf("GetSessionById: %v", err)
+	}
+
+	if session.Id != "s1" {
+		t.Errorf("GetSessionById: got %q, want %q", session.Id, "s1")
+	}
+
+	session, err = s.GetSessionById("s2")
+	if !errors.Is(err, xerrors.StorageErrNotFound) {
+		t.Errorf("GetSessionById missing: got %v, want xerrors.StorageErrNotFound", err)
 	}
 }

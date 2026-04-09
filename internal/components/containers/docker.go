@@ -2,11 +2,14 @@ package containers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"strings"
+	"time"
 
-	"github.com/containerd/errdefs"
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
@@ -28,28 +31,48 @@ type dockerManager struct {
 }
 
 func (m *dockerManager) ensureImage(ctx context.Context, imageName string) error {
+	// check if the image is available locally
 	_, err := m.client.ImageInspect(ctx, imageName)
 	if err == nil {
 		return nil
 	}
-	if !errdefs.IsNotFound(err) {
+	if !cerrdefs.IsNotFound(err) {
 		return fmt.Errorf("checking image %s: %w", imageName, err)
 	}
+
+	// image not found locally, attempt to pull it
 	reader, err := m.client.ImagePull(ctx, imageName, image.PullOptions{})
 	if err != nil {
 		return fmt.Errorf("pulling image %s: %w", imageName, err)
 	}
 	defer reader.Close()
-	if _, err := io.Copy(os.Stdout, reader); err != nil {
-		return fmt.Errorf("streaming image pull %s: %w", imageName, err)
+
+	// read the pull output to completion to ensure the image is fully pulled
+	decoder := json.NewDecoder(reader)
+	for {
+		var msg map[string]any
+		if err := decoder.Decode(&msg); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("failed reading pull stream %s: %w", imageName, err)
+		}
+		if e, ok := msg["error"]; ok {
+			return fmt.Errorf("daemon pull error for %s: %v", imageName, e)
+		}
 	}
 	return nil
 }
 
-// Create pulls together the container configuration from cfg, creates the
+// GetClient returns the underlying Docker client instance.
+func (m *dockerManager) GetClient() client.APIClient {
+	return m.client
+}
+
+// Start pulls together the container configuration from cfg, creates the
 // container on the Docker host, and starts it.
-func (m *dockerManager) Create(ctx context.Context, cfg ContainerConfig) (string, error) {
-	// pull image if does not exist
+func (m *dockerManager) Start(ctx context.Context, cfg *ContainerConfig) (string, error) {
+	// pull only when the image is not available locally.
 	if err := m.ensureImage(ctx, cfg.Image); err != nil {
 		return "", err
 	}
@@ -94,13 +117,13 @@ func (m *dockerManager) Create(ctx context.Context, cfg ContainerConfig) (string
 		cfg.Name,
 	)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to create container: %w", err)
 	}
 
 	// start the container
 	if err := m.client.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		_ = m.client.ContainerRemove(ctx, resp.ID, container.RemoveOptions{})
-		return "", err
+		return "", fmt.Errorf("failed to start container: %w", err)
 	}
 
 	return resp.ID, nil
@@ -114,23 +137,27 @@ func (m *dockerManager) StoreLogs(ctx context.Context, containerID string, fileP
 		ShowStderr: true,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get container logs: %w", err)
 	}
 	defer reader.Close()
 
 	f, err := os.Create(filePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create log file: %w", err)
 	}
 	defer f.Close()
 
 	_, err = stdcopy.StdCopy(f, f, reader)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to write logs: %w", err)
+	}
+
+	return nil
 }
 
 // List returns information about every container that carries the bedrock
 // managed-by label, regardless of whether it is running or stopped.
-func (m *dockerManager) List(ctx context.Context) ([]ContainerInfo, error) {
+func (m *dockerManager) List(ctx context.Context) ([]*ContainerInfo, error) {
 	raw, err := m.client.ContainerList(ctx, container.ListOptions{
 		All: true,
 		Filters: filters.NewArgs(
@@ -138,28 +165,77 @@ func (m *dockerManager) List(ctx context.Context) ([]ContainerInfo, error) {
 		),
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
 
-	infos := make([]ContainerInfo, 0, len(raw))
-	for _, summary := range raw {
-		exited, exitCode := false, 0
+	infos := make([]*ContainerInfo, 0, len(raw))
+	for _, c := range raw {
 		// call ContainerInspect to get the exit code if the container has finished
-		if inspect, err := m.client.ContainerInspect(ctx, summary.ID); err == nil {
-			if inspect.State != nil && !inspect.State.Running {
-				exited = true
-				exitCode = 0
-			}
+		inspect, err := m.client.ContainerInspect(ctx, c.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to inspect container: %w", err)
 		}
 
-		infos = append(infos, ContainerInfo{
-			Summary:  summary,
-			Exited:   exited,
-			ExitCode: exitCode,
-		})
+		exited, exitCode := false, 0
+		if inspect.State != nil && !inspect.State.Running {
+			exited = true
+			exitCode = int(inspect.State.ExitCode)
+		}
+
+		// convert the inspect created time string to a timestamp
+		createdAt, err := time.Parse(time.RFC3339, inspect.Created)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse created time: %w", err)
+		}
+
+		// create a container info instance
+		cinfo := &ContainerInfo{
+			ID:        c.ID,
+			Name:      strings.TrimPrefix(c.Names[0], "/"),
+			Image:     c.Image,
+			Command:   c.Command,
+			Status:    c.Status,
+			Exited:    exited,
+			ExitCode:  exitCode,
+			CreatedAt: createdAt,
+		}
+
+		infos = append(infos, cinfo)
 	}
 
 	return infos, nil
+}
+
+// Get returns information about a specific container, including its exit code if it has finished.
+func (m *dockerManager) Get(ctx context.Context, containerID string) (*ContainerInfo, error) {
+	inspect, err := m.client.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect container: %w", err)
+	}
+
+	// convert the inspect created time string to a timestamp
+	createdAt, err := time.Parse(time.RFC3339, inspect.Created)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse created time: %w", err)
+	}
+
+	cinfo := &ContainerInfo{
+		ID:        inspect.ID,
+		Name:      strings.TrimPrefix(inspect.Name, "/"),
+		Image:     inspect.Config.Image,
+		Command:   strings.Join(inspect.Config.Cmd, " "),
+		Status:    inspect.State.Status,
+		Exited:    false,
+		ExitCode:  0,
+		CreatedAt: createdAt,
+	}
+
+	if inspect.State != nil && !inspect.State.Running {
+		cinfo.Exited = true
+		cinfo.ExitCode = int(inspect.State.ExitCode)
+	}
+
+	return cinfo, nil
 }
 
 // Stop stops a running container.
