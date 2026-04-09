@@ -30,6 +30,8 @@ func (d Dockerd) Command() *cobra.Command {
 		Short: "Docker Daemon",
 		Long:  "Docker Daemon is a containerization platform that allows you to build, ship, and run containers.",
 		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf("\nconfigs:\n%s\n\n", d.Cfg.String())
+
 			if err := StartDockerd(d.Ctx, d.Cfg); err != nil {
 				panic(err)
 			}

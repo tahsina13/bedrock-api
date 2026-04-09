@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/amirhnajafiz/bedrock-api/internal/configs"
 
@@ -21,6 +22,8 @@ func (f FileMD) Command() *cobra.Command {
 		Short: "File Management Daemon",
 		Long:  "File Management Daemon is a POSIX-compliant file management system that provides a unified interface for handling file operations.",
 		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf("\nconfigs:\n%s\n\n", f.Cfg.String())
+
 			if err := StartFileMD(f.Ctx, f.Cfg); err != nil {
 				panic(err)
 			}

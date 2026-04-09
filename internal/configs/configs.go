@@ -59,6 +59,21 @@ func (c *Config) String() string {
 	return string(bytes)
 }
 
+func (c *APIConfig) String() string {
+	bytes, _ := json.MarshalIndent(c, "", "  ")
+	return string(bytes)
+}
+
+func (c *DockerdConfig) String() string {
+	bytes, _ := json.MarshalIndent(c, "", "  ")
+	return string(bytes)
+}
+
+func (c *FileMDConfig) String() string {
+	bytes, _ := json.MarshalIndent(c, "", "  ")
+	return string(bytes)
+}
+
 // LoadConfig loads the configuration for the application.
 func LoadConfig(cpath string) (*Config, error) {
 	var instance Config

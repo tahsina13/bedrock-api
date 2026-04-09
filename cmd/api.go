@@ -30,6 +30,8 @@ func (a API) Command() *cobra.Command {
 		Short: "API Server",
 		Long:  "API Server is a RESTful API server that provides endpoints for managing and interacting with the system.",
 		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf("\nconfigs:\n%s\n\n", a.Cfg.String())
+
 			if a.Cfg.FullStackMode {
 				// create a new error group to run both the API and the Docker Daemon in full stack mode
 				erg, ctx := errgroup.WithContext(a.Ctx)

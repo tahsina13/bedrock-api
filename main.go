@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -41,7 +40,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("configs:\n%s\n\n", cfg.String())
 
 	// add subcommands
 	root.AddCommand(
