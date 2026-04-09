@@ -1,7 +1,5 @@
 package configs
 
-import "time"
-
 // Default returns the default configuration for the application.
 func Default() *Config {
 	return &Config{
@@ -20,8 +18,8 @@ func DefaultAPIConfig() *APIConfig {
 		SocketPort:                 8081,
 		SocketHandlers:             1,
 		FullStackMode:              false,
-		DockerDHealthCheckInterval: 1 * time.Minute,
-		SessionStatusCheckInterval: 30 * time.Second,
+		DockerDHealthCheckInterval: "1m",
+		SessionStatusCheckInterval: "30s",
 		BedrockTracerImage:         "ghcr.io/amirhnajafiz/bedrock-tracer:v0.0.6-beta",
 	}
 }
@@ -32,8 +30,8 @@ func DefaultDockerdConfig() *DockerdConfig {
 		LogLevel:           "info",
 		APISocketHost:      "127.0.0.1",
 		APISocketPort:      8081,
-		APITimeout:         10 * time.Second,
-		PullInterval:       30 * time.Second,
+		APITimeout:         "10s",
+		PullInterval:       "30s",
 		BedrockTracerImage: "ghcr.io/amirhnajafiz/bedrock-tracer:v0.0.6-beta",
 		DataDir:            "/tmp/bedrock-logs",
 	}

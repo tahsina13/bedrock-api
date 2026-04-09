@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/amirhnajafiz/bedrock-api/internal/configs"
 	"github.com/amirhnajafiz/bedrock-api/internal/logger"
@@ -66,16 +68,24 @@ func StartAPI(ctx context.Context, cfg *configs.APIConfig) error {
 	logr := logger.New(cfg.LogLevel)
 
 	// create an errgroup with the provided context
-	erg, ctx := errgroup.WithContext(ctx)
+	erg, ectx := errgroup.WithContext(ctx)
+
+	// parse durations
+	dockerdHealthCheckInterval, _ := time.ParseDuration(cfg.DockerDHealthCheckInterval)
+	sessionStatusCheckInterval, _ := time.ParseDuration(cfg.SessionStatusCheckInterval)
 
 	// start the workers
 	dockerdHealthChannel := make(chan string)
 	erg.Go(func() error {
-		workers.WorkerDockerDHealthCheck(ctx, dockerdHealthChannel, logr.Named("dockerd-health"), cfg.DockerDHealthCheckInterval)
+		workers.WorkerDockerDHealthCheck(ectx, dockerdHealthChannel, logr.Named("dockerd-health"), dockerdHealthCheckInterval)
+		logr.Info("docker daemon health check worker stopped")
+
 		return nil
 	})
 	erg.Go(func() error {
-		workers.WorkerCheckExpiredSessions(ctx, logr.Named("session-worker"), cfg.SessionStatusCheckInterval)
+		workers.WorkerCheckExpiredSessions(ectx, logr.Named("session-worker"), sessionStatusCheckInterval)
+		logr.Info("session status check worker stopped")
+
 		return nil
 	})
 
@@ -89,7 +99,10 @@ func StartAPI(ctx context.Context, cfg *configs.APIConfig) error {
 		cfg.SocketHandlers,
 	)
 	erg.Go(func() error {
-		return zmqServer.Serve(ctx)
+		err := zmqServer.Serve(ectx)
+		logr.Info("zmq server stopped", zap.Error(err))
+
+		return err
 	})
 
 	// build and start the HTTP server in a separate goroutine
@@ -100,11 +113,14 @@ func StartAPI(ctx context.Context, cfg *configs.APIConfig) error {
 		zmqAddress,
 	)
 	erg.Go(func() error {
-		return httpServer.Serve()
+		err := httpServer.Serve()
+		logr.Info("http server stopped", zap.Error(err))
+
+		return err
 	})
 
 	// wait for all servers to finish
-	if err := erg.Wait(); err != nil {
+	if err := erg.Wait(); err != nil && !errors.Is(err, context.Canceled) {
 		logr.Error("api failed", zap.Error(err))
 		return err
 	}

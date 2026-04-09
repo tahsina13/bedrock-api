@@ -16,6 +16,7 @@ type Daemon struct {
 	// public shared modules
 	ContainerManager containers.ContainerManager
 	Logr             *zap.Logger
+	APITimeout       time.Duration
 	PullInterval     time.Duration
 
 	// private modules
@@ -56,7 +57,7 @@ func (d Daemon) Serve(ctx context.Context) error {
 		}
 
 		// send the packet to ZMQ server
-		resp, err := d.zclient.SendWithTimeout(packet.ToBytes(), int(d.PullInterval.Seconds()))
+		resp, err := d.zclient.SendWithTimeout(packet.ToBytes(), int(d.APITimeout.Seconds()))
 		if err != nil {
 			d.Logr.Warn("failed to call API", zap.Error(err))
 			continue

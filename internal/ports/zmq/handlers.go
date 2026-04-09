@@ -2,6 +2,7 @@ package zmq
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/amirhnajafiz/bedrock-api/pkg/models"
@@ -12,6 +13,9 @@ import (
 
 // socket receiver reads input messages from router and sends them over handler channel.
 func (z ZMQServer) socketReceiver(ctx context.Context, router *goczmq.Sock, channel chan [][]byte) error {
+	// set receive timeout to 2 seconds to allow graceful shutdown
+	router.SetRcvtimeo(2000)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -19,9 +23,13 @@ func (z ZMQServer) socketReceiver(ctx context.Context, router *goczmq.Sock, chan
 		default:
 		}
 
+		// receive message from router
 		request, err := router.RecvMessage()
 		if err != nil {
-			z.Logr.Warn("failed to received message", zap.Error(err))
+			if !errors.Is(err, goczmq.ErrTimeout) && !errors.Is(err, goczmq.ErrRecvFrame) {
+				z.Logr.Warn("failed to receive message", zap.Error(err))
+			}
+
 			continue
 		}
 
@@ -31,20 +39,18 @@ func (z ZMQServer) socketReceiver(ctx context.Context, router *goczmq.Sock, chan
 
 // socket sender reads input from handler channel and sends them to router.
 func (z ZMQServer) socketSender(ctx context.Context, router *goczmq.Sock, channel chan [][]byte) error {
-	for event := range channel {
+	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		default:
+		case event := <-channel:
+			if err := router.SendMessage(event); err != nil {
+				z.Logr.Warn("failed to send message", zap.Error(err))
+				return fmt.Errorf("sender router failed: %v", err)
+			}
 		}
 
-		if err := router.SendMessage(event); err != nil {
-			z.Logr.Warn("failed to send message", zap.Error(err))
-			return fmt.Errorf("sender router failed: %v", err)
-		}
 	}
-
-	return nil
 }
 
 // socket handler is the main loop of ZMQ server.

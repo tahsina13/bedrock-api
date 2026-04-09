@@ -14,28 +14,28 @@ import (
 
 // APIConfig represents the configuration for the API server.
 type APIConfig struct {
-	LogLevel                   string        `koanf:"log_level" validate:"oneof=debug info warn error"`
-	HTTPHost                   string        `koanf:"http_host" validate:"ip"`
-	HTTPPort                   int           `koanf:"http_port" validate:"min=1,max=65535"`
-	SocketHost                 string        `koanf:"socket_host" validate:"ip"`
-	SocketPort                 int           `koanf:"socket_port" validate:"min=1,max=65535"`
-	SocketHandlers             int           `koanf:"socket_handlers" validate:"min=1"`
-	FullStackMode              bool          `koanf:"full_stack_mode"`
-	DockerDHealthCheckInterval time.Duration `koanf:"dockerd_health_check_interval" validate:"duration"`
-	SessionStatusCheckInterval time.Duration `koanf:"session_status_check_interval" validate:"duration"`
-	BedrockTracerImage         string        `koanf:"bedrock_tracer_image"`
+	LogLevel                   string `koanf:"log_level" validate:"oneof=debug info warn error"`
+	HTTPHost                   string `koanf:"http_host" validate:"ip"`
+	HTTPPort                   int    `koanf:"http_port" validate:"min=1,max=65535"`
+	SocketHost                 string `koanf:"socket_host" validate:"ip"`
+	SocketPort                 int    `koanf:"socket_port" validate:"min=1,max=65535"`
+	SocketHandlers             int    `koanf:"socket_handlers" validate:"min=1"`
+	FullStackMode              bool   `koanf:"full_stack_mode"`
+	DockerDHealthCheckInterval string `koanf:"dockerd_health_check_interval" validate:"duration"`
+	SessionStatusCheckInterval string `koanf:"session_status_check_interval" validate:"duration"`
+	BedrockTracerImage         string `koanf:"bedrock_tracer_image"`
 }
 
 // DockerdConfig represents the configuration for the Docker Daemon.
 type DockerdConfig struct {
-	Name               string        `koanf:"name"`
-	LogLevel           string        `koanf:"log_level" validate:"oneof=debug info warn error"`
-	APISocketHost      string        `koanf:"api_socket_host" validate:"ip"`
-	APISocketPort      int           `koanf:"api_socket_port" validate:"min=1,max=65535"`
-	APITimeout         time.Duration `koanf:"api_timeout" validate:"duration"`
-	PullInterval       time.Duration `koanf:"pull_interval" validate:"duration"`
-	BedrockTracerImage string        `koanf:"bedrock_tracer_image"`
-	DataDir            string        `koanf:"data_dir"`
+	Name               string `koanf:"name"`
+	LogLevel           string `koanf:"log_level" validate:"oneof=debug info warn error"`
+	APISocketHost      string `koanf:"api_socket_host" validate:"ip"`
+	APISocketPort      int    `koanf:"api_socket_port" validate:"min=1,max=65535"`
+	APITimeout         string `koanf:"api_timeout" validate:"duration"`
+	PullInterval       string `koanf:"pull_interval" validate:"duration"`
+	BedrockTracerImage string `koanf:"bedrock_tracer_image"`
+	DataDir            string `koanf:"data_dir"`
 }
 
 // FileMDConfig represents the configuration for the File Management Daemon.
@@ -81,9 +81,16 @@ func LoadConfig(cpath string) (*Config, error) {
 
 	// validate the configuration
 	validate := validator.New()
+	validate.RegisterValidation("duration", ValidateDuration)
 	if err := validate.Struct(&instance); err != nil {
 		return nil, fmt.Errorf("configuration issue: %v", err)
 	}
 
 	return &instance, nil
+}
+
+// ValidateDuration is a custom validation function for time.Duration fields.
+func ValidateDuration(fl validator.FieldLevel) bool {
+	_, err := time.ParseDuration(fl.Field().String())
+	return err == nil
 }

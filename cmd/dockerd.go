@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/amirhnajafiz/bedrock-api/internal/components/containers"
 	"github.com/amirhnajafiz/bedrock-api/internal/configs"
@@ -55,11 +56,16 @@ func StartDockerd(ctx context.Context, cfg *configs.DockerdConfig) error {
 		return err
 	}
 
+	// parse durations
+	apiTimeout, _ := time.ParseDuration(cfg.APITimeout)
+	pullInterval, _ := time.ParseDuration(cfg.PullInterval)
+
 	// create and build a daemon instance
 	daemonInstance := daemon.Daemon{
 		ContainerManager: cm,
 		Logr:             logr.Named("daemon"),
-		PullInterval:     cfg.PullInterval,
+		APITimeout:       apiTimeout,
+		PullInterval:     pullInterval,
 	}.Build(name, cfg.DataDir, cfg.BedrockTracerImage, fmt.Sprintf("tcp://%s:%d", cfg.APISocketHost, cfg.APISocketPort))
 	if err := daemonInstance.Serve(ctx); err != nil {
 		logr.Error("failed to start daemon", zap.Error(err))
