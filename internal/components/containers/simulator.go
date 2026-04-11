@@ -173,6 +173,7 @@ func (s *simulatorClient) ContainerList(_ context.Context, options container.Lis
 			State:   state,
 			Status:  status,
 			Created: c.created.Unix(),
+			Labels:  c.labels,
 		})
 	}
 
