@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"sync"
 	"time"
 
 	"github.com/amirhnajafiz/bedrock-api/internal/storage/gocache"
@@ -9,6 +10,7 @@ import (
 var (
 	// goCacheBackendInstance is a singleton instance of the go-cache backend for KVStorage.
 	goCacheBackendInstance KVStorage
+	glock                  sync.Mutex
 )
 
 // KVStorage represents a key-value storage backend.
@@ -27,6 +29,9 @@ type KVStorage interface {
 
 // NewGoCache returns a singleton instance of a KVStorage implementation using go-cache as the backend.
 func NewGoCache() KVStorage {
+	glock.Lock()
+	defer glock.Unlock()
+
 	if goCacheBackendInstance == nil {
 		goCacheBackendInstance = gocache.NewBackend(1 * time.Minute)
 	}

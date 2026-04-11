@@ -10,6 +10,7 @@ import (
 var (
 	// roundRobinSchedulerInstance is a singleton instance of RoundRobinScheduler.
 	roundRobinSchedulerInstance Scheduler
+	glock                       sync.Mutex
 )
 
 // RoundRobinScheduler selects an instance using RoundRobin algorithm.
@@ -20,6 +21,9 @@ type RoundRobinScheduler struct {
 
 // NewRoundRobin returns a singleton instance of RoundRobinScheduler.
 func NewRoundRobin() Scheduler {
+	glock.Lock()
+	defer glock.Unlock()
+
 	if roundRobinSchedulerInstance == nil {
 		roundRobinSchedulerInstance = &RoundRobinScheduler{
 			queue: make([]string, 0),

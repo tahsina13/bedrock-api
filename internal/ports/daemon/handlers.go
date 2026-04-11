@@ -20,6 +20,8 @@ func (d Daemon) preparePullRequest() (*models.Packet, error) {
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
 
+	d.Logr.Debug("containers", zap.Int("count", len(cts)))
+
 	// set events with containers data
 	events := make([]models.Event, 0)
 	for _, c := range cts {
@@ -102,6 +104,7 @@ func (d Daemon) startContainersForSession(sessionId string, sessionSpec models.S
 
 	// check if the target container is running before creating
 	if _, err := d.ContainerManager.Get(ctx, target); err == nil {
+		d.Logr.Debug("container already running", zap.String("target", target))
 		return nil
 	}
 
@@ -111,7 +114,7 @@ func (d Daemon) startContainersForSession(sessionId string, sessionSpec models.S
 	}
 
 	// start the tracer container
-	if _, err := d.ContainerManager.Start(
+	if id, err := d.ContainerManager.Start(
 		ctx,
 		&containers.ContainerConfig{
 			Name:    tracer,
@@ -126,10 +129,12 @@ func (d Daemon) startContainersForSession(sessionId string, sessionSpec models.S
 		},
 	); err != nil {
 		return fmt.Errorf("failed to start container %s: %w", tracer, err)
+	} else {
+		d.Logr.Info("container started", zap.String("id", id), zap.String("name", tracer))
 	}
 
 	// start the target container
-	if _, err := d.ContainerManager.Start(
+	if id, err := d.ContainerManager.Start(
 		ctx,
 		&containers.ContainerConfig{
 			Name:  target,
@@ -142,6 +147,8 @@ func (d Daemon) startContainersForSession(sessionId string, sessionSpec models.S
 		},
 	); err != nil {
 		return fmt.Errorf("failed to start container %s: %w", target, err)
+	} else {
+		d.Logr.Info("container started", zap.String("id", id), zap.String("name", target))
 	}
 
 	return nil

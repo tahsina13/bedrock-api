@@ -2,6 +2,7 @@ package statemachine
 
 import (
 	"slices"
+	"sync"
 
 	"github.com/amirhnajafiz/bedrock-api/pkg/enums"
 )
@@ -9,6 +10,7 @@ import (
 var (
 	// stateMachineInstance is a singleton instance of StateMachine.
 	stateMachineInstance *StateMachine
+	glock                sync.Mutex
 )
 
 // StateMachine defines the allowed state transitions for session statuses.
@@ -18,6 +20,9 @@ type StateMachine struct {
 
 // NewStateMachine returns a singleton instance of StateMachine with predefined state transitions.
 func NewStateMachine() *StateMachine {
+	glock.Lock()
+	defer glock.Unlock()
+
 	if stateMachineInstance == nil {
 		stateMachineInstance = &StateMachine{
 			states: map[enums.SessionStatus][]enums.SessionStatus{
