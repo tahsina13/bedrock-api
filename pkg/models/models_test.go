@@ -3,6 +3,7 @@ package models_test
 import (
 	"testing"
 
+	"github.com/amirhnajafiz/bedrock-api/pkg/enums"
 	"github.com/amirhnajafiz/bedrock-api/pkg/models"
 
 	"github.com/stretchr/testify/assert"
@@ -14,9 +15,9 @@ func TestPacket(t *testing.T) {
 	t.Run("Packet can be created and converted to bytes and back", func(t *testing.T) {
 		original := models.NewPacket().
 			WithSender("test-sender").
-			WithSessions(
-				models.Session{Id: "session1"},
-				models.Session{Id: "session2"},
+			WithEvents(
+				models.NewEvent().WithEventType(enums.EventTypeSessionEnd).WithPayload(map[string]string{"key": "value"}),
+				models.NewEvent().WithEventType(enums.EventTypeSessionStart).WithPayload("some payload"),
 			)
 
 		bytes := original.ToBytes()
@@ -25,7 +26,11 @@ func TestPacket(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, original.Headers, converted.Headers)
-		assert.Equal(t, original.Sessions, converted.Sessions)
+		assert.Equal(t, len(original.Events), len(converted.Events))
+
+		for i, event := range original.Events {
+			assert.Equal(t, event.Headers, converted.Events[i].Headers)
+		}
 	})
 
 	t.Run("IsEmpty returns true for a packet with no headers", func(t *testing.T) {

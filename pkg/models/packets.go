@@ -7,15 +7,15 @@ type Packet struct {
 	// Headers is a map of string key-value pairs that can be used to include additional information about the packet,
 	// such as the sender or the type of message.
 	Headers map[string]string `json:"headers"`
-	// Sessions is a slice of Session structs that represent the individual sessions included in the packet.
-	Sessions []Session `json:"sessions"`
+	// Events is a slice of Event structs that represent the individual events included in the packet.
+	Events []Event `json:"events"`
 }
 
 // NewPacket creates and returns a new Packet instance.
 func NewPacket() Packet {
 	return Packet{
-		Headers:  make(map[string]string),
-		Sessions: make([]Session, 0),
+		Headers: make(map[string]string),
+		Events:  make([]Event, 0),
 	}
 }
 
@@ -25,12 +25,9 @@ func (p Packet) WithSender(sender string) Packet {
 	return p
 }
 
-// WithSessions adds sessions to the packet.
-func (p Packet) WithSessions(sessions ...Session) Packet {
-	for _, session := range sessions {
-		p.Sessions = append(p.Sessions, session)
-	}
-
+// WithEvents adds events to the packet.
+func (p Packet) WithEvents(events ...Event) Packet {
+	p.Events = append(p.Events, events...)
 	return p
 }
 

@@ -18,8 +18,8 @@ func (d Daemon) preparePullRequest() (*models.Packet, error) {
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
 
-	// set sessions with containers data
-	sessions := make([]models.Session, 0)
+	// set events with containers data
+	events := make([]models.Event, 0)
 	for _, c := range cts {
 		// skip containers that are not part of any session
 		if ctype, ok := c.Labels["container.type"]; !ok || ctype != "target" {
@@ -33,45 +33,50 @@ func (d Daemon) preparePullRequest() (*models.Packet, error) {
 		}
 
 		// determine the session status based on the container's running and exit status
-		status := enums.SessionStatusRunning
+		status := enums.EventTypeSessionRunning
 		if c.Exited {
 			if c.ExitCode == 0 {
-				status = enums.SessionStatusFinished
+				status = enums.EventTypeSessionEnd
 			} else {
-				status = enums.SessionStatusFailed
+				status = enums.EventTypeSessionFailed
 			}
 		}
 
-		// append the session to the list of sessions
-		sessions = append(sessions, models.Session{
-			Id:     sid,
-			Status: status,
-		})
+		// append the event to the list of events
+		events = append(events, models.NewEvent().
+			WithSessionId(sid).
+			WithEventType(enums.EventTypeSessionRunning).
+			WithPayload(status),
+		)
 	}
 
-	// build a packet with the container sessions
-	packet := models.NewPacket().WithSender(d.name).WithSessions(sessions...)
+	// build a packet with events
+	packet := models.NewPacket().WithSender(d.name).WithEvents(events...)
 	return &packet, nil
 }
 
 // sync the local container state with the API state.
-func (d Daemon) syncWithAPI(sessions []models.Session) []error {
+func (d Daemon) syncWithAPI(events []models.Event) []error {
 	errors := make([]error, 0)
 
 	// make changes to reach to API state
-	for _, session := range sessions {
-		switch session.Status {
-		case enums.SessionStatusStopped:
-		case enums.SessionStatusFailed:
-		case enums.SessionStatusFinished:
-			// must stop the target and tracer containers for stopped, failed, and finished sessions
-			if err := d.stopContainersForSession(session); err != nil {
-				errors = append(errors, fmt.Errorf("failed to stop containers for session %s: %w", session.Id, err))
+	for _, event := range events {
+		switch event.GetEventType() {
+		case enums.EventTypeSessionStart:
+			// start the target and tracer containers for this session
+			if err := d.startContainersForSession(
+				event.GetSessionId(),
+				event.GetPayload().(models.Spec),
+			); err != nil {
+				errors = append(errors, fmt.Errorf("failed to start containers for session %s: %w", event.GetSessionId(), err))
 			}
-		case enums.SessionStatusPending:
-			// start the target and tracer containers for pending sessions
-			if err := d.startContainersForSession(session); err != nil {
-				errors = append(errors, fmt.Errorf("failed to start containers for session %s: %w", session.Id, err))
+		case enums.EventTypeSessionFailed:
+			if err := d.deleteContainersForSession(event.GetSessionId()); err != nil {
+				errors = append(errors, fmt.Errorf("failed to delete containers for session %s: %w", event.GetSessionId(), err))
+			}
+		case enums.EventTypeSessionEnd:
+			if err := d.stopContainersForSession(event.GetSessionId()); err != nil {
+				errors = append(errors, fmt.Errorf("failed to stop containers for session %s: %w", event.GetSessionId(), err))
 			}
 		}
 	}
@@ -80,12 +85,12 @@ func (d Daemon) syncWithAPI(sessions []models.Session) []error {
 }
 
 // starts the target and tracer containers for a given session.
-func (d Daemon) startContainersForSession(session models.Session) error {
-	target := fmt.Sprintf("bedrock-target-%s", session.Id)
-	tracer := fmt.Sprintf("bedrock-tracer-%s", session.Id)
+func (d Daemon) startContainersForSession(sessionId string, sessionSpec models.Spec) error {
+	target := fmt.Sprintf("bedrock-target-%s", sessionId)
+	tracer := fmt.Sprintf("bedrock-tracer-%s", sessionId)
 
 	// create the output directory for the tracer
-	if err := createTracerOutputDir(d.datadir, session.Id); err != nil {
+	if err := createTracerOutputDir(d.datadir, sessionId); err != nil {
 		return fmt.Errorf("failed to create tracer output directory: %w", err)
 	}
 
@@ -97,10 +102,10 @@ func (d Daemon) startContainersForSession(session models.Session) error {
 			Image:   d.tracerImage,
 			Cmd:     defaultTracerCommand(target),
 			Flags:   defaultContainerFlags(),
-			Volumes: defaultTracerVolumes(d.datadir, session.Id),
+			Volumes: defaultTracerVolumes(d.datadir, sessionId),
 			Labels: map[string]string{
 				"container.type": "tracer",
-				"container.sid":  session.Id,
+				"container.sid":  sessionId,
 			},
 		},
 	); err != nil {
@@ -112,11 +117,11 @@ func (d Daemon) startContainersForSession(session models.Session) error {
 		context.Background(),
 		&containers.ContainerConfig{
 			Name:  target,
-			Image: session.Spec.Image,
-			Cmd:   strings.Split(session.Spec.Command, " "),
+			Image: sessionSpec.Image,
+			Cmd:   strings.Split(sessionSpec.Command, " "),
 			Labels: map[string]string{
 				"container.type": "target",
-				"container.sid":  session.Id,
+				"container.sid":  sessionId,
 			},
 		},
 	); err != nil {
@@ -127,12 +132,32 @@ func (d Daemon) startContainersForSession(session models.Session) error {
 }
 
 // stops the target and tracer containers for a given session.
-func (d Daemon) stopContainersForSession(session models.Session) error {
+func (d Daemon) stopContainersForSession(sessionId string) error {
 	// create a new background context for stopping containers
 	ctx := context.Background()
 
-	target := fmt.Sprintf("bedrock-target-%s", session.Id)
-	tracer := fmt.Sprintf("bedrock-tracer-%s", session.Id)
+	target := fmt.Sprintf("bedrock-target-%s", sessionId)
+	tracer := fmt.Sprintf("bedrock-tracer-%s", sessionId)
+
+	// stop the target container
+	if err := d.ContainerManager.Stop(ctx, target); err != nil {
+		return fmt.Errorf("failed to stop container %s: %w", target, err)
+	}
+
+	// stop the tracer container
+	if err := d.ContainerManager.Stop(ctx, tracer); err != nil {
+		return fmt.Errorf("failed to stop container %s: %w", tracer, err)
+	}
+
+	return nil
+}
+
+func (d Daemon) deleteContainersForSession(sessionId string) error {
+	// create a new background context for stopping containers
+	ctx := context.Background()
+
+	target := fmt.Sprintf("bedrock-target-%s", sessionId)
+	tracer := fmt.Sprintf("bedrock-tracer-%s", sessionId)
 
 	// check if the target container is running before trying to stop it
 	targetInfo, err := d.ContainerManager.Get(ctx, target)

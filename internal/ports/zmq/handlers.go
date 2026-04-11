@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/amirhnajafiz/bedrock-api/pkg/enums"
 	"github.com/amirhnajafiz/bedrock-api/pkg/models"
 
 	"github.com/zeromq/goczmq"
@@ -98,35 +99,51 @@ func (z ZMQServer) processEvent(event [][]byte) [][]byte {
 	z.DockerDHealthChannel <- dockerd
 	z.Logr.Debug("new message from daemon", zap.String("dockerd", dockerd))
 
-	// read sessions from packet and update KV storage
-	for _, session := range pkt.Sessions {
-		record, err := z.sessionStore.GetSession(session.Id, dockerd)
-		if err != nil {
+	// read events from packet and update KV storage
+	for _, event := range pkt.Events {
+		// api only cares about session running, failed, and finished events, skip other events
+		if event.GetEventType() != enums.EventTypeSessionRunning && event.GetEventType() != enums.EventTypeSessionFailed && event.GetEventType() != enums.EventTypeSessionEnd {
+			continue
+		}
+
+		// get the session id from header
+		sid := event.GetSessionId()
+
+		// retrieve the session record from KV storage using session id
+		// if session record is not found or dockerd id does not match, skip the event
+		record, err := z.sessionStore.GetSessionById(sid)
+		if err != nil || record.DockerDId != dockerd {
 			z.Logr.Warn(
 				"failed to get session",
 				zap.Error(err),
-				zap.String("session id", session.Id),
+				zap.String("session id", sid),
 				zap.String("dockerd id", dockerd),
 			)
 			continue
 		}
 
-		// transition session status using state machine
-		record.Status = z.stateMachine.Transition(record.Status, session.Status)
+		// set session status to failed and update the timestamp
+		if event.GetEventType() == enums.EventTypeSessionFailed {
+			record.Status = z.stateMachine.Transition(record.Status, enums.SessionStatusFailed)
+		} else if event.GetEventType() == enums.EventTypeSessionRunning {
+			record.Status = z.stateMachine.Transition(record.Status, enums.SessionStatusRunning)
+		} else if event.GetEventType() == enums.EventTypeSessionEnd {
+			record.Status = z.stateMachine.Transition(record.Status, enums.SessionStatusFinished)
+		}
 
 		// update the session in KV storage
 		if err := z.sessionStore.SaveSession(record); err != nil {
 			z.Logr.Warn(
 				"failed to update session",
 				zap.Error(err),
-				zap.String("session id", session.Id),
+				zap.String("session id", record.Id),
 				zap.String("dockerd id", dockerd),
 			)
 			continue
 		}
 	}
 
-	// respond with dockerd sessions
+	// retrieve all sessions of the sender daemon from KV storage
 	sessions, err := z.sessionStore.ListSessionsByDockerDId(dockerd)
 	if err != nil {
 		z.Logr.Warn("failed to list sessions", zap.Error(err))
@@ -134,9 +151,26 @@ func (z ZMQServer) processEvent(event [][]byte) [][]byte {
 		return [][]byte{event[0], responsePkt.ToBytes()}
 	}
 
-	// process the sessions and add them to the response packet
+	// only include running, stopped, or finished sessions
 	for _, session := range sessions {
-		responsePkt.Sessions = append(responsePkt.Sessions, *session)
+		switch session.Status {
+		case enums.SessionStatusPending:
+			responsePkt.WithEvents(
+				models.NewEvent().
+					WithSessionId(session.Id).
+					WithEventType(enums.EventTypeSessionStart).
+					WithPayload(session.Spec),
+			)
+		case enums.SessionStatusFailed:
+		case enums.SessionStatusStopped:
+		case enums.SessionStatusFinished:
+			responsePkt.WithEvents(
+				models.NewEvent().
+					WithSessionId(session.Id).
+					WithEventType(enums.EventTypeSessionEnd).
+					WithPayload(nil),
+			)
+		}
 	}
 
 	// send the response packet back to the sender

@@ -78,7 +78,7 @@ func (d Daemon) Serve(ctx context.Context) error {
 		d.Logr.Debug("parsed response packet", zap.Any("packet", respPacket))
 
 		// sync the local container state with the API state
-		ers := d.syncWithAPI(respPacket.Sessions)
+		ers := d.syncWithAPI(respPacket.Events)
 		for _, er := range ers {
 			d.Logr.Warn("failed to sync with API", zap.Error(er))
 		}
