@@ -170,6 +170,11 @@ func (d Daemon) startContainersForSession(sessionId string, sessionSpec models.S
 		return fmt.Errorf("failed to create tracer output directory: %w", err)
 	}
 
+	// create lock file to signal volume is not ready
+	if err := createLockFile(d.datadir, sessionId); err != nil {
+		return fmt.Errorf("failed to create lock file: %w", err)
+	}
+
 	// create the tracer container
 	tracerId, err := d.ContainerManager.Create(
 		ctx,
