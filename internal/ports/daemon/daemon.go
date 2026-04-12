@@ -38,7 +38,7 @@ func (d Daemon) Build(name, datadir, tracerImage, apiAddress string) *Daemon {
 
 // Serve starts the daemon and polls for sessions from API.
 func (d Daemon) Serve(ctx context.Context) error {
-	d.Logr.Info("starting Docker Daemon", zap.String("name", d.name))
+	d.Logr.Info("starting daemon", zap.String("name", d.name))
 
 	for {
 		// interval between each API call with context cancellation
@@ -48,16 +48,19 @@ func (d Daemon) Serve(ctx context.Context) error {
 		case <-time.After(d.PullInterval):
 		}
 
-		d.Logr.Debug("pulling sessions from API")
+		d.Logr.Info("syncing with API")
 
-		// prepare the packet with the current system status
-		packet, err := d.preparePullRequest()
+		// prepare the pull request events
+		events, err := d.prepareEvents()
 		if err != nil {
-			d.Logr.Warn("failed to prepare pull request", zap.Error(err))
+			d.Logr.Warn("failed to prepare pull request events", zap.Error(err))
 			continue
 		}
 
-		d.Logr.Debug("prepared pull request", zap.Any("packet", packet))
+		d.Logr.Debug("prepared events", zap.Int("count", len(events)))
+
+		// create a packet with the events to send to the API
+		packet := models.NewPacket().WithSender(d.name).WithEvents(events...)
 
 		// send the packet to ZMQ server
 		resp, err := d.zclient.SendWithTimeout(packet.ToBytes(), int(d.APITimeout.Seconds()))
@@ -66,23 +69,21 @@ func (d Daemon) Serve(ctx context.Context) error {
 			continue
 		}
 
-		d.Logr.Debug("received response from API", zap.ByteString("response", resp))
-
 		// get the response from ZMQ server
-		respPacket, err := models.PacketFromBytes(resp)
+		response, err := models.PacketFromBytes(resp)
 		if err != nil {
 			d.Logr.Warn("failed to parse packet", zap.Error(err))
 			continue
 		}
 
-		d.Logr.Debug("parsed response packet", zap.Any("packet", respPacket))
+		d.Logr.Debug("received events", zap.Int("count", len(response.Events)))
 
 		// sync the local container state with the API state
-		ers := d.syncWithAPI(respPacket.Events)
+		ers := d.syncEvents(response.Events)
 		for _, er := range ers {
 			d.Logr.Warn("failed to sync with API", zap.Error(er))
 		}
 
-		d.Logr.Debug("finished syncing with API")
+		d.Logr.Info("synced with API")
 	}
 }

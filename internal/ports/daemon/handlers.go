@@ -12,34 +12,53 @@ import (
 	"go.uber.org/zap"
 )
 
-// prepares the pull request packet with the current system status, including the list of containers and their statuses.
-func (d Daemon) preparePullRequest() (*models.Packet, error) {
-	// get the list of containers
-	cts, err := d.ContainerManager.List(context.Background(), nil)
+// labels used for identifying containers that are managed by the daemon.
+const (
+	daemonContainerKey        = "bedrock-daemon-container"
+	daemonContainerVal        = "true"
+	daemonContainerSessionId  = "bedrock-daemon-container.sid"
+	daemonContainerType       = "bedrock-daemon-container.type"
+	daemonContainerTypeTarget = "target"
+	daemonContainerTypeTracer = "tracer"
+)
+
+// prepareEvents returns a list of events based on the current state of the containers.
+func (d Daemon) prepareEvents() ([]models.Event, error) {
+	// create a new background context for container operations
+	ctx := context.Background()
+
+	// get the list of target containers (assuming that tracer containers run without issues)
+	containers, err := d.ContainerManager.List(ctx, map[string]string{
+		daemonContainerKey:  daemonContainerVal,
+		daemonContainerType: daemonContainerTypeTarget,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
 
-	d.Logr.Debug("containers", zap.Int("count", len(cts)))
+	d.Logr.Debug("active targets", zap.Int("count", len(containers)))
 
 	// set events with containers data
 	events := make([]models.Event, 0)
-	for _, c := range cts {
-		// skip containers that are not part of any session
-		if ctype, ok := c.Labels["container.type"]; !ok || ctype != "target" {
+	for _, container := range containers {
+		// inspect the container to get its current state
+		inspect, err := d.ContainerManager.Get(ctx, container.ID)
+		if err != nil {
+			d.Logr.Warn("failed to inspect container", zap.String("container_id", container.ID), zap.Error(err))
 			continue
 		}
 
 		// extract the session ID from the container labels
-		sid, ok := c.Labels["container.sid"]
+		sid, ok := inspect.Labels[daemonContainerSessionId]
 		if !ok {
+			d.Logr.Warn("container missing session ID label", zap.String("container_id", container.ID))
 			continue
 		}
 
 		// determine the session status based on the container's running and exit status
 		status := enums.EventTypeSessionRunning
-		if c.Exited {
-			if c.ExitCode == 0 {
+		if inspect.Exited {
+			if inspect.ExitCode == 0 {
 				status = enums.EventTypeSessionEnd
 			} else {
 				status = enums.EventTypeSessionFailed
@@ -54,22 +73,31 @@ func (d Daemon) preparePullRequest() (*models.Packet, error) {
 		)
 	}
 
-	// build a packet with events
-	packet := models.NewPacket().WithSender(d.name).WithEvents(events...)
-	return &packet, nil
+	return events, nil
 }
 
-// sync the local container state with the API state.
-func (d Daemon) syncWithAPI(events []models.Event) []error {
+// sync the daemon state with the API events.
+func (d Daemon) syncEvents(events []models.Event) []error {
+	// create a slice to collect any errors that occur during event processing
 	errors := make([]error, 0)
 
-	// make changes to reach to API state
+	// process each event and take appropriate actions based on the event type
 	for _, event := range events {
 		switch event.GetEventType() {
-		case enums.EventTypeSessionStart:
+		case enums.EventTypeSessionStart: // must start the target and tracer containers for this session
+			// unmarshal the session spec from the event payload
 			var spec models.Spec
 			if err := json.Unmarshal(event.GetPayload(), &spec); err != nil {
 				d.Logr.Warn("failed to unmarshal spec", zap.String("session_id", event.GetSessionId()), zap.Error(err))
+				continue
+			}
+
+			// check if the containers for this session are already running to avoid duplicate starts
+			if running, err := d.checkContainersForSession(event.GetSessionId()); err != nil {
+				d.Logr.Warn("failed to check containers for session", zap.String("session_id", event.GetSessionId()), zap.Error(err))
+				continue
+			} else if running {
+				d.Logr.Info("containers for session are already running, skipping start", zap.String("session_id", event.GetSessionId()))
 				continue
 			}
 
@@ -79,13 +107,18 @@ func (d Daemon) syncWithAPI(events []models.Event) []error {
 				spec,
 			); err != nil {
 				errors = append(errors, fmt.Errorf("failed to start containers for session %s: %w", event.GetSessionId(), err))
+
+				// if starting the containers failed, we should attempt to stop any containers that may have been started to clean up the state
+				if stopErr := d.stopContainersForSession(event.GetSessionId(), true); stopErr != nil {
+					d.Logr.Warn("failed to cleanup containers after failed start", zap.String("session_id", event.GetSessionId()), zap.Error(stopErr))
+				}
 			}
-		case enums.EventTypeSessionStopped:
-			if err := d.stopContainersForSession(event.GetSessionId()); err != nil {
+		case enums.EventTypeSessionStopped: // must stop the target and tracer containers for this session
+			if err := d.stopContainersForSession(event.GetSessionId(), false); err != nil {
 				errors = append(errors, fmt.Errorf("failed to stop containers for session %s: %w", event.GetSessionId(), err))
 			}
-		case enums.EventTypeSessionCleanup:
-			if err := d.deleteContainersForSession(event.GetSessionId()); err != nil {
+		case enums.EventTypeSessionCleanup: // must delete the target and tracer containers for this session
+			if err := d.stopContainersForSession(event.GetSessionId(), true); err != nil {
 				errors = append(errors, fmt.Errorf("failed to delete containers for session %s: %w", event.GetSessionId(), err))
 			}
 		}
@@ -94,19 +127,43 @@ func (d Daemon) syncWithAPI(events []models.Event) []error {
 	return errors
 }
 
+// checkContainersForSession checks if the target and tracer containers for a given session are running.
+func (d Daemon) checkContainersForSession(sessionId string) (bool, error) {
+	// create a new background context for checking containers
+	ctx := context.Background()
+
+	// list the target containers
+	containers, err := d.ContainerManager.List(ctx, map[string]string{
+		daemonContainerKey:       daemonContainerVal,
+		daemonContainerSessionId: sessionId,
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to list containers: %w", err)
+	}
+
+	// check if both target and tracer containers exists for this session
+	hasTarget := false
+	hasTracer := false
+	for _, container := range containers {
+		switch container.Labels[daemonContainerType] {
+		case daemonContainerTypeTarget:
+			hasTarget = true
+		case daemonContainerTypeTracer:
+			hasTracer = true
+		}
+	}
+
+	return hasTarget && hasTracer, nil
+}
+
 // starts the target and tracer containers for a given session.
 func (d Daemon) startContainersForSession(sessionId string, sessionSpec models.Spec) error {
 	// create a new background context for stopping containers
 	ctx := context.Background()
 
+	// define the container names for the target and tracer containers based on the session ID
 	target := fmt.Sprintf("bedrock-target-%s", sessionId)
 	tracer := fmt.Sprintf("bedrock-tracer-%s", sessionId)
-
-	// check if the target container is running before creating
-	if _, err := d.ContainerManager.Get(ctx, target); err == nil {
-		d.Logr.Debug("container already running", zap.String("target", target))
-		return nil
-	}
 
 	// create the output directory for the tracer
 	if err := createTracerOutputDir(d.datadir, sessionId); err != nil {
@@ -114,7 +171,7 @@ func (d Daemon) startContainersForSession(sessionId string, sessionSpec models.S
 	}
 
 	// create the tracer container
-	if id, err := d.ContainerManager.Create(
+	tracerId, err := d.ContainerManager.Create(
 		ctx,
 		&models.ContainerConfig{
 			Name:    tracer,
@@ -123,89 +180,84 @@ func (d Daemon) startContainersForSession(sessionId string, sessionSpec models.S
 			Flags:   defaultContainerFlags(),
 			Volumes: defaultTracerVolumes(d.datadir, sessionId),
 			Labels: map[string]string{
-				"container.type": "tracer",
-				"container.sid":  sessionId,
+				daemonContainerKey:       daemonContainerVal,
+				daemonContainerType:      daemonContainerTypeTracer,
+				daemonContainerSessionId: sessionId,
 			},
 		},
-	); err != nil {
-		return fmt.Errorf("failed to start container %s: %w", tracer, err)
-	} else {
-		d.Logr.Info("container started", zap.String("id", id), zap.String("name", tracer))
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create container %s: %w", tracer, err)
 	}
 
+	d.Logr.Debug("container created", zap.String("container_id", tracerId), zap.String("name", tracer))
+
 	// create the target container
-	if id, err := d.ContainerManager.Create(
+	targetId, err := d.ContainerManager.Create(
 		ctx,
 		&models.ContainerConfig{
 			Name:  target,
 			Image: sessionSpec.Image,
 			Cmd:   strings.Split(sessionSpec.Command, " "),
 			Labels: map[string]string{
-				"container.type": "target",
-				"container.sid":  sessionId,
+				daemonContainerKey:       daemonContainerVal,
+				daemonContainerType:      daemonContainerTypeTarget,
+				daemonContainerSessionId: sessionId,
 			},
 		},
-	); err != nil {
-		return fmt.Errorf("failed to start container %s: %w", target, err)
-	} else {
-		d.Logr.Info("container started", zap.String("id", id), zap.String("name", target))
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create container %s: %w", target, err)
 	}
+
+	d.Logr.Debug("container created", zap.String("container_id", targetId), zap.String("name", target))
+
+	// start the tracer container
+	if err := d.ContainerManager.Start(ctx, tracerId); err != nil {
+		return fmt.Errorf("failed to start container %s: %w", tracer, err)
+	}
+
+	d.Logr.Info("container started", zap.String("container_id", tracerId), zap.String("name", tracer))
+
+	// start the target container
+	if err := d.ContainerManager.Start(ctx, targetId); err != nil {
+		return fmt.Errorf("failed to start container %s: %w", target, err)
+	}
+
+	d.Logr.Info("container started", zap.String("container_id", targetId), zap.String("name", target))
 
 	return nil
 }
 
 // stops the target and tracer containers for a given session.
-func (d Daemon) stopContainersForSession(sessionId string) error {
+func (d Daemon) stopContainersForSession(sessionId string, remove bool) error {
 	// create a new background context for stopping containers
 	ctx := context.Background()
 
-	target := fmt.Sprintf("bedrock-target-%s", sessionId)
-	tracer := fmt.Sprintf("bedrock-tracer-%s", sessionId)
-
-	// stop the target container
-	if err := d.ContainerManager.Stop(ctx, target); err != nil {
-		return fmt.Errorf("failed to stop container %s: %w", target, err)
-	}
-
-	// stop the tracer container
-	if err := d.ContainerManager.Stop(ctx, tracer); err != nil {
-		return fmt.Errorf("failed to stop container %s: %w", tracer, err)
-	}
-
-	return nil
-}
-
-func (d Daemon) deleteContainersForSession(sessionId string) error {
-	// create a new background context for stopping containers
-	ctx := context.Background()
-
-	target := fmt.Sprintf("bedrock-target-%s", sessionId)
-	tracer := fmt.Sprintf("bedrock-tracer-%s", sessionId)
-
-	// check if the target container is running before trying to stop it
-	targetInfo, err := d.ContainerManager.Get(ctx, target)
+	// list the target containers
+	containers, err := d.ContainerManager.List(ctx, map[string]string{
+		daemonContainerKey:       daemonContainerVal,
+		daemonContainerSessionId: sessionId,
+	})
 	if err != nil {
-		return fmt.Errorf("failed to get container info for %s: %w", target, err)
+		return fmt.Errorf("failed to list containers: %w", err)
 	}
 
-	if !targetInfo.Exited {
-		// stop the target container
-		if err := d.ContainerManager.Stop(ctx, target); err != nil {
-			return fmt.Errorf("failed to stop container %s: %w", target, err)
+	// stop both target and tracer containers for this session
+	for _, container := range containers {
+		if err := d.ContainerManager.Stop(ctx, container.ID); err != nil {
+			d.Logr.Warn("failed to stop container", zap.String("container_id", container.ID), zap.Error(err))
+		} else {
+			d.Logr.Info("container stopped", zap.String("container_id", container.ID), zap.String("name", container.Name))
 		}
 
-		// stop the tracer container
-		if err := d.ContainerManager.Stop(ctx, tracer); err != nil {
-			return fmt.Errorf("failed to stop container %s: %w", tracer, err)
+		if remove {
+			if err := d.ContainerManager.Remove(ctx, container.ID); err != nil {
+				d.Logr.Warn("failed to delete container", zap.String("container_id", container.ID), zap.Error(err))
+			} else {
+				d.Logr.Info("container deleted", zap.String("container_id", container.ID), zap.String("name", container.Name))
+			}
 		}
-	}
-
-	// remove both containers after stopping
-	if err := d.ContainerManager.Remove(ctx, target); err != nil {
-		return fmt.Errorf("failed to remove container %s: %w", target, err)
-	}
-	if err := d.ContainerManager.Remove(ctx, tracer); err != nil {
-		return fmt.Errorf("failed to remove container %s: %w", tracer, err)
 	}
 
 	return nil
